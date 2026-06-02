@@ -101,6 +101,9 @@ func (r *UserRepo) List(ctx context.Context) ([]models.User, error) {
 		}
 		users = append(users, u)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating users: %w", err)
+	}
 	return users, nil
 }
 

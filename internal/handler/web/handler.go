@@ -23,12 +23,27 @@ const sessionDuration = 24 * time.Hour
 // templateFuncMap returns the shared template function map.
 func templateFuncMap() template.FuncMap {
 	return template.FuncMap{
-		"add":       func(a, b int) int { return a + b },
-		"subtract":  func(a, b int) int { return a - b },
-		"eq":        func(a, b any) bool { return a == b },
-		"deref":     func(s *string) string { if s != nil { return *s }; return "" },
-		"derefUUID": func(u *uuid.UUID) uuid.UUID { if u != nil { return *u }; return uuid.Nil },
-		"derefTime": func(t *time.Time) time.Time { if t != nil { return *t }; return time.Time{} },
+		"add":      func(a, b int) int { return a + b },
+		"subtract": func(a, b int) int { return a - b },
+		"eq":       func(a, b any) bool { return a == b },
+		"deref": func(s *string) string {
+			if s != nil {
+				return *s
+			}
+			return ""
+		},
+		"derefUUID": func(u *uuid.UUID) uuid.UUID {
+			if u != nil {
+				return *u
+			}
+			return uuid.Nil
+		},
+		"derefTime": func(t *time.Time) time.Time {
+			if t != nil {
+				return *t
+			}
+			return time.Time{}
+		},
 		"expired": func(t *time.Time) bool {
 			if t == nil {
 				return false
@@ -84,7 +99,10 @@ func (h *Handler) Routes(sessionRepo *repository.SessionRepo) chi.Router {
 	r := chi.NewRouter()
 
 	// Static files
-	staticSub, _ := fs.Sub(webstatic.StaticFS, "static")
+	staticSub, err := fs.Sub(webstatic.StaticFS, "static")
+	if err != nil {
+		panic("failed to load static files: " + err.Error())
+	}
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 
 	// Public routes
@@ -275,11 +293,21 @@ func (h *Handler) redeemInviteSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.invites.MarkUsed(r.Context(), invite.ID, user.ID)
+	if err := h.invites.MarkUsed(r.Context(), invite.ID, user.ID); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
 	// Auto-login
-	token, tokenHash, _ := auth.GenerateSessionToken()
-	h.sessions.Create(r.Context(), user.ID, tokenHash, time.Now().Add(sessionDuration))
+	token, tokenHash, err := auth.GenerateSessionToken()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if _, err := h.sessions.Create(r.Context(), user.ID, tokenHash, time.Now().Add(sessionDuration)); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
 		Value:    token,
@@ -429,7 +457,11 @@ func (h *Handler) requestDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dests, _ := h.serverDests.List(r.Context())
+	dests, err := h.serverDests.List(r.Context())
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
 	h.renderPage(w, "request_detail", map[string]any{
 		"User":               user,
@@ -597,7 +629,11 @@ func (h *Handler) userEditSubmit(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) invitesPage(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
-	codes, _ := h.invites.List(r.Context())
+	codes, err := h.invites.List(r.Context())
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
 	data := map[string]any{"User": user, "Codes": codes}
 	h.renderPage(w, "invites", data)
@@ -611,9 +647,16 @@ func (h *Handler) inviteGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.invites.Create(r.Context(), code, user.ID, nil)
+	if _, err := h.invites.Create(r.Context(), code, user.ID, nil); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
-	codes, _ := h.invites.List(r.Context())
+	codes, err := h.invites.List(r.Context())
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	h.renderPage(w, "invites", map[string]any{"User": user, "Codes": codes, "NewCode": code})
 }
 
@@ -621,7 +664,11 @@ func (h *Handler) inviteGenerate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) serverDestsPage(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
-	dests, _ := h.serverDests.List(r.Context())
+	dests, err := h.serverDests.List(r.Context())
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	h.renderPage(w, "server_destinations", map[string]any{"User": user, "Destinations": dests})
 }
 
@@ -629,14 +676,22 @@ func (h *Handler) serverDestCreate(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
 	name := strings.TrimSpace(r.FormValue("name"))
 	if name == "" {
-		dests, _ := h.serverDests.List(r.Context())
+		dests, listErr := h.serverDests.List(r.Context())
+		if listErr != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		h.renderPage(w, "server_destinations", map[string]any{"User": user, "Destinations": dests, "Error": "Name is required"})
 		return
 	}
 
 	_, err := h.serverDests.Create(r.Context(), name, user.ID)
 	if err != nil {
-		dests, _ := h.serverDests.List(r.Context())
+		dests, listErr := h.serverDests.List(r.Context())
+		if listErr != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		h.renderPage(w, "server_destinations", map[string]any{"User": user, "Destinations": dests, "Error": err.Error()})
 		return
 	}
@@ -650,7 +705,10 @@ func (h *Handler) serverDestDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid ID", http.StatusBadRequest)
 		return
 	}
-	h.serverDests.Delete(r.Context(), id)
+	if err := h.serverDests.Delete(r.Context(), id); err != nil {
+		http.Error(w, "failed to delete server destination", http.StatusInternalServerError)
+		return
+	}
 	http.Redirect(w, r, "/manage/server-destinations", http.StatusSeeOther)
 }
 

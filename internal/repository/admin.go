@@ -85,6 +85,9 @@ func (r *InviteCodeRepo) List(ctx context.Context) ([]models.InviteCode, error) 
 		}
 		codes = append(codes, ic)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating invite codes: %w", err)
+	}
 	return codes, nil
 }
 
@@ -134,6 +137,9 @@ func (r *ServerDestRepo) List(ctx context.Context) ([]models.ServerDestination, 
 			return nil, fmt.Errorf("scanning server destination: %w", err)
 		}
 		dests = append(dests, sd)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating server destinations: %w", err)
 	}
 	return dests, nil
 }

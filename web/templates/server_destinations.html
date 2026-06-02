@@ -33,7 +33,7 @@
                     <td>{{.Name}}</td>
                     <td style="color:var(--text-muted); font-size:0.85rem;">{{.CreatedAt.Format "2006-01-02"}}</td>
                     <td>
-                        <form method="POST" action="/manage/server-destinations/{{.ID}}/delete" style="display:inline;" onsubmit="return confirm('Delete server destination \'{{.Name}}\'?')">
+                        <form method="POST" action="/manage/server-destinations/{{.ID}}/delete" style="display:inline;" data-dest-name="{{.Name}}" onsubmit="return confirm('Delete server destination \u0027' + this.dataset.destName + '\u0027?')">
                             <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                         </form>
                     </td>

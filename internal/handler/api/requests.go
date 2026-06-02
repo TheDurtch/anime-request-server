@@ -256,11 +256,10 @@ func intQuery(r *http.Request, key string, defaultVal int) int {
 	if v == "" {
 		return defaultVal
 	}
-	var i int
-	if _, err := parsePositiveInt(v); err != nil {
+	i, err := parsePositiveInt(v)
+	if err != nil {
 		return defaultVal
 	}
-	i = int(mustParsePositiveInt(v))
 	return i
 }
 
@@ -276,11 +275,6 @@ func parsePositiveInt(s string) (int, error) {
 		i = i*10 + int(c-'0')
 	}
 	return i, nil
-}
-
-func mustParsePositiveInt(s string) int {
-	i, _ := parsePositiveInt(s)
-	return i
 }
 
 // AddDestination handles POST /api/v1/requests/{id}/destinations
