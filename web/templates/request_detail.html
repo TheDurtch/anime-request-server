@@ -14,7 +14,7 @@
         <table style="max-width:400px;">
             <tr><td style="color:var(--text-secondary);">Requested by</td><td>{{.Request.RequestedByUsername}}</td></tr>
             <tr><td style="color:var(--text-secondary);">Server</td><td>{{if .Request.ServerDestinationName}}{{deref .Request.ServerDestinationName}}{{else}}—{{end}}</td></tr>
-            <tr><td style="color:var(--text-secondary);">AniDB</td><td>{{if .Request.AnidbURL}}<a href="{{deref .Request.AnidbURL}}" target="_blank">{{deref .Request.AnidbURL}}</a>{{else}}—{{end}}</td></tr>
+            <tr><td style="color:var(--text-secondary);">AniDB</td><td>{{if .Request.AnidbURL}}<a href="{{deref .Request.AnidbURL}}" target="_blank" rel="noopener noreferrer">{{deref .Request.AnidbURL}}</a>{{else}}—{{end}}</td></tr>
             <tr><td style="color:var(--text-secondary);">Created</td><td>{{.Request.CreatedAt.Format "2006-01-02 15:04"}}</td></tr>
             <tr><td style="color:var(--text-secondary);">Updated</td><td>{{.Request.UpdatedAt.Format "2006-01-02 15:04"}}</td></tr>
         </table>
