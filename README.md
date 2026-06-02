@@ -46,8 +46,8 @@ The server is a **request board**. It presents what anime is wanted and what sta
 | `id`            | PK                                         |
 | `username`      | unique                                     |
 | `email`         | unique, optional                           |
-| `password_hash` | Argon2id or bcrypt                         |
-| `password_salt` | per-user random salt                       |
+| `password_hash` | encoded Argon2id (PHC) or bcrypt hash (includes salt/params) |
+| `password_salt` | optional (only if not storing salt inside the encoded hash)  |
 | `keyfile_hash`  | nullable                                   |
 | `role`          | `admin` / `mod` / `user`                   |
 | `created_at`    |                                            |
