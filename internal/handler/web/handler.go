@@ -453,9 +453,11 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 		anidbPtr = &anidbURL
 	}
 
-	h.requests.Update(r.Context(), id, status, category, serverDestID, anidbPtr)
+	if err := h.requests.Update(r.Context(), id, status, category, serverDestID, anidbPtr); err != nil {
+		http.Error(w, "failed to update request", http.StatusInternalServerError)
+		return
+	}
 	http.Redirect(w, r, "/requests/"+id.String(), http.StatusSeeOther)
-}
 
 // --- Admin pages ---
 
