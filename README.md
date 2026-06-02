@@ -10,7 +10,7 @@ The server is a **request board**. It presents what anime is wanted and what sta
 
 1. Persistent storage in **SQLite** (default) or **PostgreSQL** (production).
 2. Anime request entries with:
-   - **Required on creation (by any user):** show name, category (`current/future` or `already complete`).
+   - **Required on creation (by any user):** show name, category (`current/future` or `finished airing`).
    - **Set later by admin/mod:** status, server destination, AniDB URL.
 3. User authentication (passwords hashed + salted, optional keyfile support).
 4. HTTP/JSON API for the Web UI.
@@ -31,7 +31,7 @@ The server is a **request board**. It presents what anime is wanted and what sta
 
 ## Request lifecycle (example)
 
-1. A **user** requests "Eizouken ni wa Te wo Dasu na!" and labels it **already complete**.
+1. A **user** requests "Eizouken ni wa Te wo Dasu na!" and labels it **finished airing**.
 2. An **admin/mod** sees the new request and reviews it.
 3. The admin/mod updates:
    - **status** → `done` (already have it), or `need to get`, `acquiring`, `processing`, `syncing`, `done`.
