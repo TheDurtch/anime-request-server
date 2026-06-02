@@ -329,7 +329,11 @@ func (h *Handler) requestNewSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dup, _ := h.requests.CheckDuplicate(r.Context(), name)
+	dup, err := h.requests.CheckDuplicate(r.Context(), name)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	if dup {
 		h.renderPage(w, "request_new", map[string]any{"User": user, "Error": "A request with this name already exists", "Name": name, "Category": category})
 		return
