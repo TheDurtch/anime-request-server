@@ -455,7 +455,7 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 
 	statusStr := r.FormValue("status")
 	categoryStr := r.FormValue("category")
-	serverDestIDStr := r.FormValue("server_destination_id")
+	// TODO: Handle multiple server_destination_id[] checkboxes
 	anidbURL := r.FormValue("anidb_url")
 
 	var status *models.Status
@@ -470,19 +470,12 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 		category = &c
 	}
 
-	var serverDestID *uuid.UUID
-	if serverDestIDStr != "" {
-		if parsed, err := uuid.Parse(serverDestIDStr); err == nil {
-			serverDestID = &parsed
-		}
-	}
-
 	var anidbPtr *string
 	if anidbURL != "" {
 		anidbPtr = &anidbURL
 	}
 
-	if err := h.requests.Update(r.Context(), id, status, category, serverDestID, anidbPtr); err != nil {
+	if err := h.requests.Update(r.Context(), id, status, category, anidbPtr); err != nil {
 		http.Error(w, "failed to update request", http.StatusInternalServerError)
 		return
 	}

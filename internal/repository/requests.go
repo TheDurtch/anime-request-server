@@ -78,21 +78,91 @@ func (r *RequestRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.AnimeR
 	req := &models.AnimeRequest{}
 	err := r.pool.QueryRow(ctx, `
 		SELECT ar.id, ar.name, ar.category, ar.status, ar.requested_by, u.username,
-		       ar.server_destination_id, sd.name, ar.anidb_url, ar.created_at, ar.updated_at
+		       ar.anidb_url, ar.created_at, ar.updated_at
 		FROM anime_requests ar
 		JOIN users u ON u.id = ar.requested_by
-		LEFT JOIN server_destinations sd ON sd.id = ar.server_destination_id
 		WHERE ar.id = $1
 	`, id).Scan(&req.ID, &req.Name, &req.Category, &req.Status, &req.RequestedBy,
-		&req.RequestedByUsername, &req.ServerDestinationID, &req.ServerDestinationName,
-		&req.AnidbURL, &req.CreatedAt, &req.UpdatedAt)
+		&req.RequestedByUsername, &req.AnidbURL, &req.CreatedAt, &req.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("getting request: %w", err)
 	}
+
+	// Load server destinations
+	if err := r.loadDestinations(ctx, req); err != nil {
+		return nil, err
+	}
+
 	return req, nil
+}
+
+// loadDestinations loads server destinations for a single request.
+func (r *RequestRepo) loadDestinations(ctx context.Context, req *models.AnimeRequest) error {
+	rows, err := r.pool.Query(ctx, `
+		SELECT sd.id, sd.name, rsd.added_at
+		FROM request_server_destinations rsd
+		JOIN server_destinations sd ON sd.id = rsd.server_destination_id
+		WHERE rsd.request_id = $1
+		ORDER BY rsd.added_at ASC
+	`, req.ID)
+	if err != nil {
+		return fmt.Errorf("loading destinations: %w", err)
+	}
+	defer rows.Close()
+
+	req.ServerDestinations = []models.ServerDestinationMapping{}
+	for rows.Next() {
+		var dest models.ServerDestinationMapping
+		if err := rows.Scan(&dest.ID, &dest.Name, &dest.AddedAt); err != nil {
+			return fmt.Errorf("scanning destination: %w", err)
+		}
+		req.ServerDestinations = append(req.ServerDestinations, dest)
+	}
+	return rows.Err()
+}
+
+// loadDestinationsForMultiple loads destinations for multiple requests efficiently.
+func (r *RequestRepo) loadDestinationsForMultiple(ctx context.Context, requests []models.AnimeRequest) error {
+	if len(requests) == 0 {
+		return nil
+	}
+
+	// Build list of request IDs
+	requestIDs := make([]uuid.UUID, len(requests))
+	requestMap := make(map[uuid.UUID]*models.AnimeRequest)
+	for i := range requests {
+		requestIDs[i] = requests[i].ID
+		requestMap[requests[i].ID] = &requests[i]
+		requests[i].ServerDestinations = []models.ServerDestinationMapping{}
+	}
+
+	// Fetch all destinations for these requests in one query
+	rows, err := r.pool.Query(ctx, `
+		SELECT rsd.request_id, sd.id, sd.name, rsd.added_at
+		FROM request_server_destinations rsd
+		JOIN server_destinations sd ON sd.id = rsd.server_destination_id
+		WHERE rsd.request_id = ANY($1)
+		ORDER BY rsd.request_id, rsd.added_at ASC
+	`, requestIDs)
+	if err != nil {
+		return fmt.Errorf("loading destinations: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var requestID uuid.UUID
+		var dest models.ServerDestinationMapping
+		if err := rows.Scan(&requestID, &dest.ID, &dest.Name, &dest.AddedAt); err != nil {
+			return fmt.Errorf("scanning destination: %w", err)
+		}
+		if req, ok := requestMap[requestID]; ok {
+			req.ServerDestinations = append(req.ServerDestinations, dest)
+		}
+	}
+	return rows.Err()
 }
 
 // List returns filtered and paginated anime requests.
@@ -138,10 +208,9 @@ func (r *RequestRepo) List(ctx context.Context, filter RequestFilter) ([]models.
 	args = append(args, filter.PerPage, offset)
 	query := fmt.Sprintf(`
 		SELECT ar.id, ar.name, ar.category, ar.status, ar.requested_by, u.username,
-		       ar.server_destination_id, sd.name, ar.anidb_url, ar.created_at, ar.updated_at
+		       ar.anidb_url, ar.created_at, ar.updated_at
 		FROM anime_requests ar
 		JOIN users u ON u.id = ar.requested_by
-		LEFT JOIN server_destinations sd ON sd.id = ar.server_destination_id
 		WHERE %s
 		ORDER BY ar.created_at DESC
 		LIMIT $%d OFFSET $%d
@@ -157,18 +226,24 @@ func (r *RequestRepo) List(ctx context.Context, filter RequestFilter) ([]models.
 	for rows.Next() {
 		var req models.AnimeRequest
 		if err := rows.Scan(&req.ID, &req.Name, &req.Category, &req.Status, &req.RequestedBy,
-			&req.RequestedByUsername, &req.ServerDestinationID, &req.ServerDestinationName,
+			&req.RequestedByUsername,
 			&req.AnidbURL, &req.CreatedAt, &req.UpdatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scanning request: %w", err)
 		}
 		requests = append(requests, req)
 	}
 
+	// Load destinations for all requests
+	if err := r.loadDestinationsForMultiple(ctx, requests); err != nil {
+		return nil, 0, err
+	}
+
 	return requests, total, nil
 }
 
 // Update modifies a request (admin/mod only fields).
-func (r *RequestRepo) Update(ctx context.Context, id uuid.UUID, status *models.Status, category *models.Category, serverDestID *uuid.UUID, anidbURL *string) error {
+// Note: serverDestIDs are now managed via AddDestination/RemoveDestination methods.
+func (r *RequestRepo) Update(ctx context.Context, id uuid.UUID, status *models.Status, category *models.Category, anidbURL *string) error {
 	sets := []string{"updated_at = NOW()"}
 	args := []any{}
 	argIdx := 1
@@ -183,30 +258,52 @@ func (r *RequestRepo) Update(ctx context.Context, id uuid.UUID, status *models.S
 		args = append(args, string(*category))
 		argIdx++
 	}
-	if serverDestID != nil {
-		sets = append(sets, fmt.Sprintf("server_destination_id = $%d", argIdx))
-		args = append(args, *serverDestID)
-		argIdx++
-	}
 	if anidbURL != nil {
+		// Don't allow clearing once set - validate before calling
 		sets = append(sets, fmt.Sprintf("anidb_url = $%d", argIdx))
 		args = append(args, *anidbURL)
 		argIdx++
 	}
 
-	if len(args) == 0 {
+	if len(sets) == 1 {
+		// Only updated_at, nothing to do
 		return nil
 	}
 
 	args = append(args, id)
 	query := fmt.Sprintf("UPDATE anime_requests SET %s WHERE id = $%d", strings.Join(sets, ", "), argIdx)
-
 	_, err := r.pool.Exec(ctx, query, args...)
-	if err != nil {
-		return fmt.Errorf("updating request: %w", err)
-	}
-	return nil
+	return err
 }
+
+// AddDestination adds a server destination to a request.
+func (r *RequestRepo) AddDestination(ctx context.Context, requestID, destinationID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO request_server_destinations (request_id, server_destination_id)
+		VALUES ($1, $2)
+		ON CONFLICT (request_id, server_destination_id) DO NOTHING
+	`, requestID, destinationID)
+	return err
+}
+
+// RemoveDestination removes a server destination from a request.
+func (r *RequestRepo) RemoveDestination(ctx context.Context, requestID, destinationID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `
+		DELETE FROM request_server_destinations
+		WHERE request_id = $1 AND server_destination_id = $2
+	`, requestID, destinationID)
+	return err
+}
+
+// GetDestinationCount returns the number of destinations for a request.
+func (r *RequestRepo) GetDestinationCount(ctx context.Context, requestID uuid.UUID) (int, error) {
+	var count int
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM request_server_destinations WHERE request_id = $1
+	`, requestID).Scan(&count)
+	return count, err
+}
+
 
 // CheckDuplicate checks if a request with the same name already exists (case-insensitive).
 func (r *RequestRepo) CheckDuplicate(ctx context.Context, name string) (bool, error) {

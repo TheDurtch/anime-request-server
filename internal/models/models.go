@@ -53,17 +53,23 @@ const (
 
 // AnimeRequest represents a single anime request entry.
 type AnimeRequest struct {
-	ID                    uuid.UUID  `json:"id"`
-	Name                  string     `json:"name"`
-	Category              Category   `json:"category"`
-	Status                Status     `json:"status"`
-	RequestedBy           uuid.UUID  `json:"requested_by"`
-	RequestedByUsername    string     `json:"requested_by_username,omitempty"`
-	ServerDestinationID   *uuid.UUID `json:"server_destination_id,omitempty"`
-	ServerDestinationName *string    `json:"server_destination_name,omitempty"`
-	AnidbURL              *string    `json:"anidb_url,omitempty"`
-	CreatedAt             time.Time  `json:"created_at"`
-	UpdatedAt             time.Time  `json:"updated_at"`
+	ID                      uuid.UUID  `json:"id"`
+	Name                    string     `json:"name"`
+	Category                Category   `json:"category"`
+	Status                  Status     `json:"status"`
+	RequestedBy             uuid.UUID  `json:"requested_by"`
+	RequestedByUsername     string     `json:"requested_by_username,omitempty"`
+	ServerDestinations      []ServerDestinationMapping `json:"server_destinations,omitempty"`
+	AnidbURL                *string    `json:"anidb_url,omitempty"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
+}
+
+// ServerDestinationMapping represents a server destination assigned to a request.
+type ServerDestinationMapping struct {
+	ID      uuid.UUID `json:"id"`
+	Name    string    `json:"name"`
+	AddedAt time.Time `json:"added_at"`
 }
 
 // ServerDestination represents a managed server name.

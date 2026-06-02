@@ -137,7 +137,7 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Status              *string `json:"status"`
 		Category            *string `json:"category"`
-		ServerDestinationID *string `json:"server_destination_id"`
+		ServerDestinationIDs []string `json:"server_destination_ids"` // TODO: Implement full multi-destination UI
 		AnidbURL            *string `json:"anidb_url"`
 	}
 	if err := Decode(r, &req); err != nil {
@@ -165,17 +165,9 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 		category = &c
 	}
 
-	var serverDestID *uuid.UUID
-	if req.ServerDestinationID != nil {
-		parsed, err := uuid.Parse(*req.ServerDestinationID)
-		if err != nil {
-			Error(w, http.StatusBadRequest, "invalid server_destination_id")
-			return
-		}
-		serverDestID = &parsed
-	}
+	// TODO: Handle req.ServerDestinationIDs via AddDestination/RemoveDestination methods
 
-	if err := h.requests.Update(r.Context(), id, status, category, serverDestID, req.AnidbURL); err != nil {
+	if err := h.requests.Update(r.Context(), id, status, category, req.AnidbURL); err != nil {
 		Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
