@@ -46,15 +46,18 @@ func (r *RequestRepo) Create(ctx context.Context, name string, category models.C
 
 // CreateBatch inserts multiple anime requests at once.
 func (r *RequestRepo) CreateBatch(ctx context.Context, names []string, requestedBy uuid.UUID) (int, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
 	batch := &pgx.Batch{}
 	for _, name := range names {
-		batch.Queue(`
-			INSERT INTO anime_requests (id, name, category, requested_by)
-			VALUES ($1, $2, 'batch_add', $3)
-		`, uuid.New(), name, requestedBy)
+		batch.Queue(`INSERT INTO anime_requests (id, name, category, requested_by) VALUES ($1, $2, 'batch_add', $3)`, uuid.New(), name, requestedBy)
 	}
 
-	br := r.pool.SendBatch(ctx, batch)
+	br := tx.SendBatch(ctx, batch)
 	defer br.Close()
 
 	count := 0
@@ -63,6 +66,9 @@ func (r *RequestRepo) CreateBatch(ctx context.Context, names []string, requested
 			return count, fmt.Errorf("batch insert item %d: %w", count, err)
 		}
 		count++
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return count, fmt.Errorf("commit batch insert: %w", err)
 	}
 	return count, nil
 }
