@@ -72,22 +72,23 @@ func main() {
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		return fmt.Errorf("DATABASE_URL is required")
 	}
 
 	fmt.Println("Running database migrations...")
-	if err := database.RunMigrations(cfg.DatabaseURL); err != nil {
+	if err := database.RunMigrations(databaseURL); err != nil {
 		return fmt.Errorf("migrations failed: %w", err)
 	}
 	fmt.Println("✓ Migrations applied successfully.")
 
 	ctx := context.Background()
-	pool, err := database.Connect(ctx, cfg.DatabaseURL)
+	pool, err := database.Connect(ctx, databaseURL)
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
+	defer pool.Close()
 	defer pool.Close()
 
 	userRepo := repository.NewUserRepo(pool)
