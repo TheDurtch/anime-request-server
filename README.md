@@ -34,7 +34,7 @@ The server is a **request board**. It presents what anime is wanted and what sta
 1. A **user** requests "Eizouken ni wa Te wo Dasu na!" and labels it **finished airing**.
 2. An **admin/mod** sees the new request and reviews it.
 3. The admin/mod updates:
-   - **status** → `done` (already have it), or `need to get`, `acquiring`, `processing`, `syncing`, `done`.
+   - **status** → `need to get`, `acquiring`, `processing`, `syncing`, `done`.
    - **server destination** → Server A or Server B.
    - **AniDB URL** → link to the show page.
 
