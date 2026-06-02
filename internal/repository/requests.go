@@ -265,11 +265,6 @@ func (r *RequestRepo) Update(ctx context.Context, id uuid.UUID, status *models.S
 		argIdx++
 	}
 
-	if len(sets) == 1 {
-		// Only updated_at, nothing to do
-		return nil
-	}
-
 	args = append(args, id)
 	query := fmt.Sprintf("UPDATE anime_requests SET %s WHERE id = $%d", strings.Join(sets, ", "), argIdx)
 	_, err := r.pool.Exec(ctx, query, args...)

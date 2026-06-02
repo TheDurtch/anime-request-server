@@ -135,10 +135,10 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Status              *string `json:"status"`
-		Category            *string `json:"category"`
-		ServerDestinationIDs []string `json:"server_destination_ids"` // TODO: Implement full multi-destination UI
-		AnidbURL            *string `json:"anidb_url"`
+		Status   *string `json:"status"`
+		Category *string `json:"category"`
+		// Note: Destinations are managed via /requests/{id}/destinations endpoints
+		AnidbURL *string `json:"anidb_url"`
 	}
 	if err := Decode(r, &req); err != nil {
 		Error(w, http.StatusBadRequest, "invalid request body")
@@ -164,8 +164,6 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 		c := models.Category(*req.Category)
 		category = &c
 	}
-
-	// TODO: Handle req.ServerDestinationIDs via AddDestination/RemoveDestination methods
 
 	// Handle AniDB URL - prevent clearing once set
 	var anidbURL *string

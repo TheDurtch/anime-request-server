@@ -513,7 +513,10 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue // Skip invalid UUIDs
 			}
-			_ = h.requests.AddDestination(r.Context(), id, destID)
+			if err := h.requests.AddDestination(r.Context(), id, destID); err != nil {
+				http.Error(w, "failed to add destination", http.StatusInternalServerError)
+				return
+			}
 		}
 	}
 
@@ -521,7 +524,10 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 	if len(selectedDestIDs) > 0 {
 		for _, dest := range existing.ServerDestinations {
 			if !selectedDestMap[dest.ID.String()] {
-				_ = h.requests.RemoveDestination(r.Context(), id, dest.ID)
+				if err := h.requests.RemoveDestination(r.Context(), id, dest.ID); err != nil {
+					http.Error(w, "failed to remove destination", http.StatusInternalServerError)
+					return
+				}
 			}
 		}
 	}
