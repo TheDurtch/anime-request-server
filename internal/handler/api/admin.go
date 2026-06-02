@@ -181,7 +181,7 @@ func (h *AdminHandler) ListInvites(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, codes)
 }
 
-// ListServerDestinations handles GET /api/v1/admin/server-destinations
+// ListServerDestinations handles GET /api/v1/server-destinations
 func (h *AdminHandler) ListServerDestinations(w http.ResponseWriter, r *http.Request) {
 	dests, err := h.serverDests.List(r.Context())
 	if err != nil {
