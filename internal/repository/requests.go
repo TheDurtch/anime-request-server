@@ -37,8 +37,7 @@ func (r *RequestRepo) Create(ctx context.Context, name string, category models.C
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO anime_requests (id, name, category, requested_by)
 		VALUES ($1, $2, $3, $4)
-	`, id, string(category), requestedBy)
-	if err != nil {
+	`, id, name, string(category), requestedBy)
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	return r.GetByID(ctx, id)
