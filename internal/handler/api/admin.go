@@ -225,7 +225,7 @@ func (h *AdminHandler) CreateServerDestination(w http.ResponseWriter, r *http.Re
 	JSON(w, http.StatusCreated, dest)
 }
 
-// DeleteServerDestination handles DELETE /api/v1/admin/server-destinations/{id}
+// DeleteServerDestination handles DELETE /api/v1/server-destinations/{id}
 func (h *AdminHandler) DeleteServerDestination(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
