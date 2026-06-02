@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/TheDurtch/anime-request-server/internal/auth"
 	"github.com/TheDurtch/anime-request-server/internal/config"
@@ -89,7 +90,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
 	defer pool.Close()
-	defer pool.Close()
 
 	userRepo := repository.NewUserRepo(pool)
 
@@ -124,10 +124,23 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Print("Admin password (min 8 chars): ")
-	password, _ := reader.ReadString('\n')
-	password = strings.TrimSpace(password)
+	passwordRaw, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	if err != nil {
+		return fmt.Errorf("reading password: %w", err)
+	}
+	password := strings.TrimSpace(string(passwordRaw))
 	if len(password) < 8 {
 		return fmt.Errorf("password must be at least 8 characters")
+	}
+	fmt.Print("Confirm admin password: ")
+	confirmRaw, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	if err != nil {
+		return fmt.Errorf("reading password confirmation: %w", err)
+	}
+	if password != strings.TrimSpace(string(confirmRaw)) {
+		return fmt.Errorf("passwords do not match")
 	}
 
 	hash, err := auth.HashPassword(password)

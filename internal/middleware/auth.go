@@ -74,7 +74,6 @@ func RequireAuth(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-}
 
 // RequireRole rejects requests from users without the specified roles.
 func RequireRole(roles ...models.Role) func(http.Handler) http.Handler {
@@ -106,7 +105,6 @@ func RequireRole(roles ...models.Role) func(http.Handler) http.Handler {
 			http.Error(w, "forbidden", http.StatusForbidden)
 		})
 	}
-}
 }
 
 // extractToken gets the session token from the cookie or Authorization header.

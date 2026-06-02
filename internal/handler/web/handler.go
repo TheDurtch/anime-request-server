@@ -339,7 +339,7 @@ func (h *Handler) requestNewSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := h.requests.Create(r.Context(), name, models.Category(category), user.ID)
+	_, err = h.requests.Create(r.Context(), name, models.Category(category), user.ID)
 	if err != nil {
 		h.renderPage(w, "request_new", map[string]any{"User": user, "Error": "Failed to create request", "Name": name, "Category": category})
 		return
@@ -462,6 +462,7 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/requests/"+id.String(), http.StatusSeeOther)
+}
 
 // --- Admin pages ---
 
@@ -519,6 +520,7 @@ func (h *Handler) userEditSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/manage/users", http.StatusSeeOther)
+}
 
 func (h *Handler) invitesPage(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
