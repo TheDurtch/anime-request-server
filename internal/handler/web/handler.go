@@ -453,9 +453,16 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get existing request to compare destinations
+	existing, err := h.requests.GetByID(r.Context(), id)
+	if err != nil || existing == nil {
+		http.Error(w, "request not found", http.StatusNotFound)
+		return
+	}
+
 	statusStr := r.FormValue("status")
 	categoryStr := r.FormValue("category")
-	// TODO: Handle multiple server_destination_id[] checkboxes
+	selectedDestIDs := r.Form["server_destination_ids"] // Multiple checkboxes
 	anidbURL := r.FormValue("anidb_url")
 
 	var status *models.Status
@@ -473,12 +480,54 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 	var anidbPtr *string
 	if anidbURL != "" {
 		anidbPtr = &anidbURL
+	} else {
+		// Check if we're trying to clear an existing AniDB URL
+		if existing.AnidbURL != nil {
+			// Don't allow clearing - set to "none" instead
+			none := "none"
+			anidbPtr = &none
+		}
 	}
 
+	// Update basic fields (status, category, anidb_url)
 	if err := h.requests.Update(r.Context(), id, status, category, anidbPtr); err != nil {
 		http.Error(w, "failed to update request", http.StatusInternalServerError)
 		return
 	}
+
+	// Update destinations if changed
+	existingDestMap := make(map[string]bool)
+	for _, dest := range existing.ServerDestinations {
+		existingDestMap[dest.ID.String()] = true
+	}
+
+	selectedDestMap := make(map[string]bool)
+	for _, destIDStr := range selectedDestIDs {
+		selectedDestMap[destIDStr] = true
+	}
+
+	// Add new destinations
+	for _, destIDStr := range selectedDestIDs {
+		if !existingDestMap[destIDStr] {
+			destID, err := uuid.Parse(destIDStr)
+			if err != nil {
+				continue // Skip invalid UUIDs
+			}
+			_ = h.requests.AddDestination(r.Context(), id, destID)
+		}
+	}
+
+	// Remove unchecked destinations (only if there's at least one destination remaining)
+	if len(selectedDestIDs) > 0 {
+		for _, dest := range existing.ServerDestinations {
+			if !selectedDestMap[dest.ID.String()] {
+				_ = h.requests.RemoveDestination(r.Context(), id, dest.ID)
+			}
+		}
+	}
+	// If no destinations selected and request had destinations, don't allow clearing
+	// (silently keep existing destinations)
+
 	http.Redirect(w, r, "/requests/"+id.String(), http.StatusSeeOther)
 }
 

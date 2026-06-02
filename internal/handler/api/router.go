@@ -51,6 +51,12 @@ func NewRouter(
 			// Admin/mod only
 			r.With(middleware.RequireRole(models.RoleAdmin, models.RoleMod)).
 				Patch("/{id}", requestHandler.Update)
+
+			// Destination management (admin/mod only)
+			r.With(middleware.RequireRole(models.RoleAdmin, models.RoleMod)).
+				Post("/{id}/destinations", requestHandler.AddDestination)
+			r.With(middleware.RequireRole(models.RoleAdmin, models.RoleMod)).
+				Delete("/{id}/destinations/{dest_id}", requestHandler.RemoveDestination)
 		})
 
 		// Admin routes

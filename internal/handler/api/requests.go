@@ -167,7 +167,30 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	// TODO: Handle req.ServerDestinationIDs via AddDestination/RemoveDestination methods
 
-	if err := h.requests.Update(r.Context(), id, status, category, req.AnidbURL); err != nil {
+	// Handle AniDB URL - prevent clearing once set
+	var anidbURL *string
+	if req.AnidbURL != nil {
+		// Check if request exists and has AniDB URL already set
+		existing, err := h.requests.GetByID(r.Context(), id)
+		if err != nil {
+			Error(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if existing == nil {
+			Error(w, http.StatusNotFound, "request not found")
+			return
+		}
+
+		// If trying to clear an existing AniDB URL, set it to "none" instead
+		if existing.AnidbURL != nil && *req.AnidbURL == "" {
+			none := "none"
+			anidbURL = &none
+		} else {
+			anidbURL = req.AnidbURL
+		}
+	}
+
+	if err := h.requests.Update(r.Context(), id, status, category, anidbURL); err != nil {
 		Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -260,4 +283,68 @@ func parsePositiveInt(s string) (int, error) {
 func mustParsePositiveInt(s string) int {
 	i, _ := parsePositiveInt(s)
 	return i
+}
+
+// AddDestination handles POST /api/v1/requests/{id}/destinations
+func (h *RequestHandler) AddDestination(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		Error(w, http.StatusBadRequest, "invalid request ID")
+		return
+	}
+
+	var req struct {
+		DestinationID string `json:"destination_id"`
+	}
+	if err := Decode(r, &req); err != nil {
+		Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	destID, err := uuid.Parse(req.DestinationID)
+	if err != nil {
+		Error(w, http.StatusBadRequest, "invalid destination_id")
+		return
+	}
+
+	if err := h.requests.AddDestination(r.Context(), id, destID); err != nil {
+		Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{"status": "added"})
+}
+
+// RemoveDestination handles DELETE /api/v1/requests/{id}/destinations/{dest_id}
+func (h *RequestHandler) RemoveDestination(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		Error(w, http.StatusBadRequest, "invalid request ID")
+		return
+	}
+
+	destID, err := uuid.Parse(chi.URLParam(r, "dest_id"))
+	if err != nil {
+		Error(w, http.StatusBadRequest, "invalid destination ID")
+		return
+	}
+
+	// Check if this is the last destination
+	count, err := h.requests.GetDestinationCount(r.Context(), id)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	if count <= 1 {
+		Error(w, http.StatusBadRequest, "cannot remove last destination")
+		return
+	}
+
+	if err := h.requests.RemoveDestination(r.Context(), id, destID); err != nil {
+		Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{"status": "removed"})
 }

@@ -53,7 +53,13 @@
                     </td>
                     <td><span class="category category-{{.Category}}">{{.Category}}</span></td>
                     <td><span class="status status-{{.Status}}">{{.Status}}</span></td>
-                    <td>{{if .ServerDestinationName}}{{deref .ServerDestinationName}}{{else}}<span style="color:var(--text-muted)">—</span>{{end}}</td>
+                    <td>
+                        {{if .ServerDestinations}}
+                            {{range $i, $dest := .ServerDestinations}}
+                                {{if $i}}, {{end}}{{$dest.Name}}
+                            {{end}}
+                        {{else}}<span style="color:var(--text-muted)">—</span>{{end}}
+                    </td>
                     <td>{{.RequestedByUsername}}</td>
                     <td style="color:var(--text-muted); font-size:0.85rem;">{{.CreatedAt.Format "2006-01-02"}}</td>
                 </tr>
