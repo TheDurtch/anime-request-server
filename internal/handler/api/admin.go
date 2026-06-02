@@ -140,9 +140,13 @@ func (h *AdminHandler) GenerateInvite(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ExpiresInHours *int `json:"expires_in_hours"`
 	}
-	// Ignore decode errors — body is optional
-	Decode(r, &req)
-
+	// Body is optional, but if provided it must be valid JSON.
+	if r.Body != http.NoBody {
+		if err := Decode(r, &req); err != nil {
+			Error(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
 	code, err := auth.GenerateInviteCode()
 	if err != nil {
 		Error(w, http.StatusInternalServerError, "internal error")
