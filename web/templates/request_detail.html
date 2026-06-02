@@ -1,0 +1,61 @@
+{{define "title"}}{{.Request.Name}}{{end}}
+
+{{define "content"}}
+<div style="max-width:700px; margin:1.5rem auto;">
+    <a href="/" style="color:var(--text-muted); font-size:0.85rem;">← Back to requests</a>
+    <div class="card" style="margin-top:0.5rem;">
+        <h1 style="margin-bottom:0.5rem;">{{.Request.Name}}</h1>
+
+        <div style="display:flex; gap:0.5rem; margin-bottom:1rem;">
+            <span class="category category-{{.Request.Category}}">{{.Request.Category}}</span>
+            <span class="status status-{{.Request.Status}}">{{.Request.Status}}</span>
+        </div>
+
+        <table style="max-width:400px;">
+            <tr><td style="color:var(--text-secondary);">Requested by</td><td>{{.Request.RequestedByUsername}}</td></tr>
+            <tr><td style="color:var(--text-secondary);">Server</td><td>{{if .Request.ServerDestinationName}}{{deref .Request.ServerDestinationName}}{{else}}—{{end}}</td></tr>
+            <tr><td style="color:var(--text-secondary);">AniDB</td><td>{{if .Request.AnidbURL}}<a href="{{deref .Request.AnidbURL}}" target="_blank">{{deref .Request.AnidbURL}}</a>{{else}}—{{end}}</td></tr>
+            <tr><td style="color:var(--text-secondary);">Created</td><td>{{.Request.CreatedAt.Format "2006-01-02 15:04"}}</td></tr>
+            <tr><td style="color:var(--text-secondary);">Updated</td><td>{{.Request.UpdatedAt.Format "2006-01-02 15:04"}}</td></tr>
+        </table>
+    </div>
+
+    {{if or (eq .User.Role "admin") (eq .User.Role "mod")}}
+    <div class="card">
+        <h2 style="margin-bottom:1rem; font-size:1.1rem;">Update Request</h2>
+        <form method="POST" action="/requests/{{.Request.ID}}/edit">
+            <div class="form-group">
+                <label for="status">Status</label>
+                <select id="status" name="status" class="form-control">
+                    {{range .Statuses}}
+                    <option value="{{.}}" {{if eq . $.Request.Status}}selected{{end}}>{{.}}</option>
+                    {{end}}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="category">Category</label>
+                <select id="category" name="category" class="form-control">
+                    {{range .Categories}}
+                    <option value="{{.}}" {{if eq . $.Request.Category}}selected{{end}}>{{.}}</option>
+                    {{end}}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="server_destination_id">Server Destination</label>
+                <select id="server_destination_id" name="server_destination_id" class="form-control">
+                    <option value="">— None —</option>
+                    {{range .ServerDestinations}}
+                    <option value="{{.ID}}" {{if and $.Request.ServerDestinationID (eq .ID (derefUUID $.Request.ServerDestinationID))}}selected{{end}}>{{.Name}}</option>
+                    {{end}}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="anidb_url">AniDB URL</label>
+                <input type="url" id="anidb_url" name="anidb_url" class="form-control" value="{{if .Request.AnidbURL}}{{deref .Request.AnidbURL}}{{end}}">
+            </div>
+            <button type="submit" class="btn btn-primary">Update</button>
+        </form>
+    </div>
+    {{end}}
+</div>
+{{end}}

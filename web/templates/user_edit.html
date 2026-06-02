@@ -1,0 +1,38 @@
+{{define "title"}}Edit User — {{.EditUser.Username}}{{end}}
+
+{{define "content"}}
+<div style="max-width:500px; margin:1.5rem auto;">
+    <a href="/manage/users" style="color:var(--text-muted); font-size:0.85rem;">← Back to users</a>
+    <h1 style="margin:0.5rem 0 1rem;">Edit: {{.EditUser.Username}}</h1>
+
+    <div class="card">
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
+
+        <form method="POST" action="/manage/users/{{.EditUser.ID}}">
+            <div class="form-group">
+                <label for="role">Role</label>
+                <select id="role" name="role" class="form-control">
+                    <option value="admin" {{if eq .EditUser.Role "admin"}}selected{{end}}>Admin</option>
+                    <option value="mod" {{if eq .EditUser.Role "mod"}}selected{{end}}>Mod</option>
+                    <option value="user" {{if eq .EditUser.Role "user"}}selected{{end}}>User</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="can_batch_add" value="true" {{if .EditUser.CanBatchAdd}}checked{{end}}>
+                    Can Batch Add
+                </label>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="disabled" value="true" {{if .EditUser.Disabled}}checked{{end}}>
+                    Disabled
+                </label>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+        </form>
+    </div>
+</div>
+{{end}}

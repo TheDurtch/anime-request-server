@@ -1,0 +1,50 @@
+{{define "title"}}Invite Codes{{end}}
+
+{{define "content"}}
+<div class="page-header">
+    <h1>Invite Codes</h1>
+    <form method="POST" action="/manage/invites/generate">
+        <button type="submit" class="btn btn-primary">+ Generate Code</button>
+    </form>
+</div>
+
+{{if .NewCode}}
+<div class="alert alert-success">
+    New invite code: <strong style="font-family:monospace; font-size:1.1rem;">{{.NewCode}}</strong>
+    — share this with the user.
+</div>
+{{end}}
+
+<div class="card">
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Status</th>
+                    <th>Expires</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Codes}}
+                <tr>
+                    <td style="font-family:monospace;">{{.Code}}</td>
+                    <td>
+                        {{if .UsedBy}}
+                            <span style="color:var(--text-muted);">Used</span>
+                        {{else if and .ExpiresAt (expired .ExpiresAt)}}
+                            <span style="color:var(--accent);">Expired</span>
+                        {{else}}
+                            <span style="color:var(--success);">Available</span>
+                        {{end}}
+                    </td>
+                    <td>{{if .ExpiresAt}}{{(derefTime .ExpiresAt).Format "2006-01-02 15:04"}}{{else}}Never{{end}}</td>
+                    <td style="color:var(--text-muted); font-size:0.85rem;">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+{{end}}

@@ -1,0 +1,33 @@
+{{define "title"}}Login{{end}}
+
+{{define "content"}}
+<div class="login-container">
+    <h1>Anime Requests</h1>
+    <div class="card">
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
+
+        <form method="POST" action="/login">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" class="form-control" required autofocus>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label for="totp_code">2FA Code (if enabled)</label>
+                <input type="text" id="totp_code" name="totp_code" class="form-control" placeholder="Optional" autocomplete="one-time-code">
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%">Login</button>
+        </form>
+
+        <p style="text-align:center; margin-top:1rem; color:var(--text-muted); font-size:0.85rem;">
+            Need an account? Ask an admin for an invite code.<br>
+            <a href="/redeem-invite">Redeem invite code</a>
+        </p>
+    </div>
+</div>
+{{end}}

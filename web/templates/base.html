@@ -1,0 +1,49 @@
+{{define "base"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{template "title" .}} — Anime Requests</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    {{if .User}}
+    <nav class="navbar">
+        <div class="container">
+            <a href="/" class="navbar-brand">Anime Requests</a>
+            <ul class="navbar-nav">
+                <li><a href="/">Requests</a></li>
+                {{if or (eq .User.Role "admin") (eq .User.Role "mod")}}
+                <li><a href="/manage/server-destinations">Servers</a></li>
+                {{end}}
+                {{if eq .User.Role "admin"}}
+                <li><a href="/manage/users">Users</a></li>
+                <li><a href="/manage/invites">Invites</a></li>
+                {{end}}
+                <li>
+                    <span class="navbar-user">
+                        {{.User.Username}} <span class="badge badge-{{.User.Role}}">{{.User.Role}}</span>
+                    </span>
+                </li>
+                <li>
+                    <form method="POST" action="/logout" style="display:inline">
+                        <button type="submit">Logout</button>
+                    </form>
+                </li>
+            </ul>
+        </div>
+    </nav>
+    {{end}}
+
+    <main class="container">
+        {{if .Flash}}
+        <div class="alert alert-{{.Flash.Type}}">{{.Flash.Message}}</div>
+        {{end}}
+        {{template "content" .}}
+    </main>
+
+    {{template "scripts" .}}
+</body>
+</html>{{end}}
+
+{{define "scripts"}}{{end}}
