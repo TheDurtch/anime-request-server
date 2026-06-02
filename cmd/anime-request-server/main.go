@@ -167,9 +167,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("checking initialization: %w", err)
 	}
 	if !initialized {
-		fmt.Println("ERROR: Database is not initialized.")
-		fmt.Println("Run 'anime-request-server init' to set up the database and create an admin user.")
-		os.Exit(1)
+		return fmt.Errorf("database is not initialized: run 'anime-request-server init' to set up the database and create an admin user")
 	}
 
 	// Repositories
