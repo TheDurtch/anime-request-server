@@ -4,7 +4,7 @@ A GoLang server for anime-request webui.
 
 ## What the server does
 
-The server is a **request board**. It presents what anime is wanted and what state each request is in. It does **not** acquire, download, or monitor anything — all status changes are made manually by users.
+The server is a **request board**. It presents what anime is wanted and what state each request is in. It does **not** acquire, download, or monitor anything — all status changes are made manually by admin/mod users.
 
 ## Baseline requirements
 
