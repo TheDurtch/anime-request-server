@@ -82,7 +82,13 @@ func RequireRole(roles ...models.Role) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user := UserFromContext(r.Context())
 			if user == nil {
-				http.Error(w, `{"error":"authentication required"}`, http.StatusUnauthorized)
+				if strings.HasPrefix(r.URL.Path, "/api/") {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					_, _ = w.Write([]byte(`{"error":"authentication required"}`))
+					return
+				}
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
 				return
 			}
 			for _, role := range roles {
@@ -91,9 +97,16 @@ func RequireRole(roles ...models.Role) func(http.Handler) http.Handler {
 					return
 				}
 			}
-			http.Error(w, `{"error":"insufficient permissions"}`, http.StatusForbidden)
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"error":"insufficient permissions"}`))
+				return
+			}
+			http.Error(w, "forbidden", http.StatusForbidden)
 		})
 	}
+}
 }
 
 // extractToken gets the session token from the cookie or Authorization header.
