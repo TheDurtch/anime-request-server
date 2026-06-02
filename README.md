@@ -2,120 +2,129 @@
 
 A GoLang server for anime-request webui.
 
-## Baseline goals
+## What the server does
 
-The server baseline should provide:
+The server is a **request board**. It presents what anime is wanted and what state each request is in. It does **not** acquire, download, or monitor anything — all status changes are made manually by users.
 
-1. Persistent storage in **SQLite** (default) or **PostgreSQL** (production/multi-user).
-2. Anime request tracking with required fields:
-   - `name`
-   - `anidb_url`
-   - `status` (requested / approved / in-progress / complete / rejected)
-   - `requested_by_user_id`
-   - `priority` (low / normal / high / urgent)
-   - `plex_destination`
-3. User authentication with:
-   - unique username/email
-   - password hashing using a modern KDF (Argon2id or bcrypt)
-   - per-user random salt
-   - optional keyfile support (hashed, never stored in plain text)
-4. HTTP API designed for a future Web UI client.
+## Baseline requirements
 
-## Data model baseline
+1. Persistent storage in **SQLite** (default) or **PostgreSQL** (production).
+2. Anime request entries with:
+   - **Required on creation (by any user):** show name, category (`current/future` or `already complete`).
+   - **Set later by admin/mod:** status, server destination, AniDB URL.
+3. User authentication (passwords hashed + salted, optional keyfile support).
+4. HTTP/JSON API for the Web UI.
+
+## User roles
+
+| Role    | Can do                                                                 |
+|---------|------------------------------------------------------------------------|
+| `admin` | Everything. Create invite codes, manage users, CLI access, full CRUD.  |
+| `mod`   | Change request status, assign server destination, add AniDB URL.       |
+| `user`  | Create requests (name + category). View all requests.                  |
+
+## User signup
+
+- **No open registration.** Users sign up via:
+  1. CLI — admin creates accounts directly.
+  2. Invite code — admin generates a code via CLI/admin console; user redeems it to create an account.
+
+## Request lifecycle (example)
+
+1. A **user** requests "Eizouken ni wa Te wo Dasu na!" and labels it **already complete**.
+2. An **admin/mod** sees the new request and reviews it.
+3. The admin/mod updates:
+   - **status** → `done` (already have it), or `need to get`, `acquiring`, `processing`, `syncing`, `done`.
+   - **server destination** → Server A or Server B.
+   - **AniDB URL** → link to the show page.
+
+## Data model
 
 ### `users`
-- `id` (PK)
-- `username` (unique)
-- `email` (unique, optional)
-- `password_hash`
-- `password_salt`
-- `keyfile_hash` (nullable)
-- `role` (admin / user)
-- `created_at`, `updated_at`
+| Column          | Notes                                      |
+|-----------------|--------------------------------------------|
+| `id`            | PK                                         |
+| `username`      | unique                                     |
+| `email`         | unique, optional                           |
+| `password_hash` | Argon2id or bcrypt                         |
+| `password_salt` | per-user random salt                       |
+| `keyfile_hash`  | nullable                                   |
+| `role`          | `admin` / `mod` / `user`                   |
+| `created_at`    |                                            |
+| `updated_at`    |                                            |
 
-### `anime_entries`
-- `id` (PK)
-- `name`
-- `anidb_url`
-- `status`
-- `requested_by_user_id` (FK -> users.id)
-- `priority`
-- `plex_destination`
-- `tracking_type` (`airing` or `completed`)
-- `episode_count_total` (nullable for airing)
-- `episode_count_acquired`
-- `next_expected_episode_date` (nullable)
-- `last_checked_at` (nullable)
-- `created_at`, `updated_at`
+### `anime_requests`
+| Column              | Notes                                              |
+|---------------------|----------------------------------------------------|
+| `id`                | PK                                                 |
+| `name`              | required — show title                              |
+| `category`          | `current_future` or `already_complete`              |
+| `status`            | `new` / `done` / `need_to_get` / `acquiring` / `processing` / `syncing` (default `new`) |
+| `requested_by`      | FK → users.id                                      |
+| `server_destination`| nullable — e.g. "Server A", "Server B"             |
+| `anidb_url`         | nullable — added by admin/mod                      |
+| `created_at`        |                                                    |
+| `updated_at`        |                                                    |
 
-### Optional supporting tables (next step)
-- `entry_status_history` (audit log for status changes)
-- `entry_comments` (discussion between requester/admin)
-- `release_checks` (external release polling records)
+### `invite_codes`
+| Column       | Notes                                |
+|--------------|--------------------------------------|
+| `id`         | PK                                   |
+| `code`       | unique, random token                 |
+| `created_by` | FK → users.id (admin who created it) |
+| `used_by`    | FK → users.id, nullable              |
+| `expires_at` | nullable                             |
+| `created_at` |                                      |
 
-## Separate tracking workflows (new requirement)
-
-### Airing anime workflow
-Use for shows releasing over time.
-
-- Entry starts as `tracking_type=airing`.
-- Store known/estimated total episodes (nullable until known).
-- Periodically check for new episodes and update `episode_count_acquired`.
-- Keep `next_expected_episode_date` and `last_checked_at`.
-- Mark collection complete when the season ends and all episodes are acquired.
-
-### Completed anime workflow
-Use for shows where all episodes are already available.
-
-- Entry starts as `tracking_type=completed`.
-- Total episode count should be known at creation when possible.
-- Focus on one-time completion progress to full collection.
-- Once all episodes are acquired, mark as finished collection.
-
-### UI separation/filtering expectations
+## Category filtering
 
 The Web UI should:
 
-- Show separate sections/tabs for **Airing** and **Completed** entries.
-- Provide a filter control for `tracking_type` (`all`, `airing`, `completed`).
-- Allow status/priority filtering within each category.
-- Show category-specific columns:
-  - Airing: next expected episode, last checked date.
-  - Completed: total episodes, acquired/remaining progress.
+- Show separate sections/tabs for **Current / Future** and **Already Complete** requests.
+- Provide a filter for `category` (`all`, `current_future`, `already_complete`).
+- Allow filtering by `status` within each category.
 
-## API baseline (for Web UI integration)
+## API baseline
 
-- `POST /auth/register`
+### Auth
 - `POST /auth/login`
 - `POST /auth/logout`
-- `GET /entries` (supports filters: `tracking_type`, `status`, `priority`, `requested_by`)
-- `POST /entries`
-- `GET /entries/{id}`
-- `PATCH /entries/{id}`
-- `GET /entries/{id}/history`
+- `POST /auth/redeem-invite` — create account using an invite code
 
-## Security baseline
+### Requests (all authenticated)
+- `GET    /requests` — list requests (filters: `category`, `status`, `requested_by`)
+- `POST   /requests` — create request (user: name + category)
+- `GET    /requests/{id}`
+- `PATCH  /requests/{id}` — update request (admin/mod: status, server, anidb_url)
+
+### Admin (admin only)
+- `POST   /admin/invite-codes` — generate invite code
+- `GET    /admin/invite-codes` — list invite codes
+- `POST   /admin/users` — create user via CLI
+- `GET    /admin/users` — list users
+- `PATCH  /admin/users/{id}` — change role, disable account
+
+## Security
 
 - Never store plaintext passwords or keyfiles.
 - Use constant-time compare for credential checks.
 - Rate-limit login endpoint.
-- Use secure session tokens/JWT with short expiration + refresh strategy.
+- Secure session tokens or JWT with short expiration + refresh.
 - Require HTTPS in production.
-- Keep secrets in environment variables or secret manager (not source control).
+- Keep secrets in environment variables (not source control).
 
 ## Additional ideas
 
-- Role-based access control (admin can approve/reprioritize; users can request and track).
-- Notifications (Discord/email/webhook) for status changes or new airing episode detected.
-- Duplicate detection by AniDB URL before creating entries.
-- Import/export entries as JSON for backup and migration.
-- Background job worker for airing release checks.
-- Metrics/health endpoints for operations and observability.
+- Duplicate detection by show name or AniDB URL before creating entries.
+- Notifications (Discord webhook) when a request status changes.
+- Import/export requests as JSON for backup.
+- Status change audit log.
+- Metrics/health endpoint.
 
 ## Suggested implementation phases
 
-1. Schema + migrations + repository layer (SQLite first, PostgreSQL compatibility).
-2. Auth + session management + protected API routes.
-3. Entry CRUD + filters + airing/completed workflow logic.
-4. Background release monitor for airing entries.
-5. Web UI integration and polishing.
+1. Schema + migrations + repository layer (SQLite first).
+2. Auth + invite code signup + session management.
+3. Request CRUD + category/status filtering + role-based permissions.
+4. CLI admin commands (create user, generate invite code).
+5. Web UI integration.
