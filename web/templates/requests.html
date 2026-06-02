@@ -49,11 +49,11 @@
                 <tr>
                     <td>
                         <a href="/requests/{{.ID}}">{{.Name}}</a>
-                        {{if .AnidbURL}}<a href="{{.AnidbURL}}" target="_blank" style="font-size:0.8rem; margin-left:0.3rem;">↗</a>{{end}}
+                        {{if .AnidbURL}}<a href="{{deref .AnidbURL}}" target="_blank" rel="noopener noreferrer" style="font-size:0.8rem; margin-left:0.3rem;">↗</a>{{end}}
                     </td>
                     <td><span class="category category-{{.Category}}">{{.Category}}</span></td>
                     <td><span class="status status-{{.Status}}">{{.Status}}</span></td>
-                    <td>{{if .ServerDestinationName}}{{.ServerDestinationName}}{{else}}<span style="color:var(--text-muted)">—</span>{{end}}</td>
+                    <td>{{if .ServerDestinationName}}{{deref .ServerDestinationName}}{{else}}<span style="color:var(--text-muted)">—</span>{{end}}</td>
                     <td>{{.RequestedByUsername}}</td>
                     <td style="color:var(--text-muted); font-size:0.85rem;">{{.CreatedAt.Format "2006-01-02"}}</td>
                 </tr>
