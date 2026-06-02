@@ -1,0 +1,82 @@
+{{define "title"}}Requests{{end}}
+
+{{define "content"}}
+<div class="page-header">
+    <h1>Anime Requests</h1>
+    <div>
+        <a href="/requests/new" class="btn btn-primary">+ New Request</a>
+        {{if .User.CanBatchAdd}}
+        <a href="/requests/batch" class="btn btn-secondary">Batch Add</a>
+        {{end}}
+    </div>
+</div>
+
+<div class="tabs">
+    <a href="/?category=" class="tab {{if eq .ActiveCategory ""}}active{{end}}">All</a>
+    <a href="/?category=current_future" class="tab {{if eq .ActiveCategory "current_future"}}active{{end}}">Current / Future</a>
+    <a href="/?category=finished_airing" class="tab {{if eq .ActiveCategory "finished_airing"}}active{{end}}">Finished Airing</a>
+    <a href="/?category=batch_add" class="tab {{if eq .ActiveCategory "batch_add"}}active{{end}}">Batch Add</a>
+</div>
+
+{{if .ActiveCategory}}
+<div style="margin-bottom:1rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+    <a href="/?category={{.ActiveCategory}}" class="btn btn-sm {{if eq .ActiveStatus ""}}btn-primary{{else}}btn-secondary{{end}}">All statuses</a>
+    <a href="/?category={{.ActiveCategory}}&status=new" class="btn btn-sm {{if eq .ActiveStatus "new"}}btn-primary{{else}}btn-secondary{{end}}">New</a>
+    <a href="/?category={{.ActiveCategory}}&status=need_to_get" class="btn btn-sm {{if eq .ActiveStatus "need_to_get"}}btn-primary{{else}}btn-secondary{{end}}">Need to Get</a>
+    <a href="/?category={{.ActiveCategory}}&status=acquiring" class="btn btn-sm {{if eq .ActiveStatus "acquiring"}}btn-primary{{else}}btn-secondary{{end}}">Acquiring</a>
+    <a href="/?category={{.ActiveCategory}}&status=processing" class="btn btn-sm {{if eq .ActiveStatus "processing"}}btn-primary{{else}}btn-secondary{{end}}">Processing</a>
+    <a href="/?category={{.ActiveCategory}}&status=syncing" class="btn btn-sm {{if eq .ActiveStatus "syncing"}}btn-primary{{else}}btn-secondary{{end}}">Syncing</a>
+    <a href="/?category={{.ActiveCategory}}&status=done" class="btn btn-sm {{if eq .ActiveStatus "done"}}btn-primary{{else}}btn-secondary{{end}}">Done</a>
+</div>
+{{end}}
+
+<div class="card">
+    {{if .Requests}}
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Status</th>
+                    <th>Server</th>
+                    <th>Requested By</th>
+                    <th>Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Requests}}
+                <tr>
+                    <td>
+                        <a href="/requests/{{.ID}}">{{.Name}}</a>
+                        {{if .AnidbURL}}<a href="{{deref .AnidbURL}}" target="_blank" rel="noopener noreferrer" style="font-size:0.8rem; margin-left:0.3rem;">↗</a>{{end}}
+                    </td>
+                    <td><span class="category category-{{.Category}}">{{.Category}}</span></td>
+                    <td><span class="status status-{{.Status}}">{{.Status}}</span></td>
+                    <td>
+                        {{if .ServerDestinations}}
+                            {{range $i, $dest := .ServerDestinations}}
+                                {{if $i}}, {{end}}{{$dest.Name}}
+                            {{end}}
+                        {{else}}<span style="color:var(--text-muted)">—</span>{{end}}
+                    </td>
+                    <td>{{.RequestedByUsername}}</td>
+                    <td style="color:var(--text-muted); font-size:0.85rem;">{{.CreatedAt.Format "2006-01-02"}}</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+
+    {{if gt .TotalPages 1}}
+    <div class="pagination">
+        {{if gt .Page 1}}<a href="/?category={{.ActiveCategory}}&status={{.ActiveStatus}}&page={{subtract .Page 1}}">← Prev</a>{{end}}
+        <span class="current">Page {{.Page}} of {{.TotalPages}}</span>
+        {{if lt .Page .TotalPages}}<a href="/?category={{.ActiveCategory}}&status={{.ActiveStatus}}&page={{add .Page 1}}">Next →</a>{{end}}
+    </div>
+    {{end}}
+    {{else}}
+    <p style="text-align:center; color:var(--text-muted); padding:2rem 0;">No requests found.</p>
+    {{end}}
+</div>
+{{end}}

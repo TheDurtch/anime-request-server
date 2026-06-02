@@ -1,0 +1,30 @@
+{{define "title"}}New Request{{end}}
+
+{{define "content"}}
+<div style="max-width:600px; margin:1.5rem auto;">
+    <h1 style="margin-bottom:1rem;">New Request</h1>
+    <div class="card">
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
+
+        <form method="POST" action="/requests/new">
+            <div class="form-group">
+                <label for="name">Show Name</label>
+                <input type="text" id="name" name="name" class="form-control" required autofocus value="{{.Name}}">
+            </div>
+            <div class="form-group">
+                <label for="category">Category</label>
+                <select id="category" name="category" class="form-control" required>
+                    <option value="current_future" {{if eq .Category "current_future"}}selected{{end}}>Current / Future</option>
+                    <option value="finished_airing" {{if eq .Category "finished_airing"}}selected{{end}}>Finished Airing</option>
+                </select>
+            </div>
+            <div style="display:flex; gap:0.5rem;">
+                <button type="submit" class="btn btn-primary">Submit Request</button>
+                <a href="/" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}

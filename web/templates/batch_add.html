@@ -1,0 +1,29 @@
+{{define "title"}}Batch Add{{end}}
+
+{{define "content"}}
+<div style="max-width:600px; margin:1.5rem auto;">
+    <h1 style="margin-bottom:1rem;">Batch Add Requests</h1>
+    <div class="card">
+        {{if .Error}}
+        <div class="alert alert-error">{{.Error}}</div>
+        {{end}}
+        {{if .Success}}
+        <div class="alert alert-success">{{.Success}}</div>
+        {{end}}
+
+        <form method="POST" action="/requests/batch">
+            <div class="form-group">
+                <label for="names">Show Names (one per line)</label>
+                <textarea id="names" name="names" class="form-control" rows="10" required placeholder="Show A&#10;Show B&#10;Show C">{{.Names}}</textarea>
+            </div>
+            <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:1rem;">
+                All entries will be added with category <strong>batch_add</strong> so mods know they need to be categorized.
+            </p>
+            <div style="display:flex; gap:0.5rem;">
+                <button type="submit" class="btn btn-primary">Add All</button>
+                <a href="/" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}
