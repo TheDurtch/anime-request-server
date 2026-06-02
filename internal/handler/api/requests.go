@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -251,10 +252,13 @@ func intQuery(r *http.Request, key string, defaultVal int) int {
 }
 
 func parsePositiveInt(s string) (int, error) {
+	if s == "" {
+		return 0, fmt.Errorf("empty string")
+	}
 	var i int
 	for _, c := range s {
 		if c < '0' || c > '9' {
-			return 0, nil
+			return 0, fmt.Errorf("invalid integer: %s", s)
 		}
 		i = i*10 + int(c-'0')
 	}

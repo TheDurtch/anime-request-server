@@ -19,6 +19,24 @@ import (
 
 const sessionDuration = 24 * time.Hour
 
+// templateFuncMap returns the shared template function map.
+func templateFuncMap() template.FuncMap {
+	return template.FuncMap{
+		"add":       func(a, b int) int { return a + b },
+		"subtract":  func(a, b int) int { return a - b },
+		"eq":        func(a, b any) bool { return a == b },
+		"deref":     func(s *string) string { if s != nil { return *s }; return "" },
+		"derefUUID": func(u *uuid.UUID) uuid.UUID { if u != nil { return *u }; return uuid.Nil },
+		"derefTime": func(t *time.Time) time.Time { if t != nil { return *t }; return time.Time{} },
+		"expired": func(t *time.Time) bool {
+			if t == nil {
+				return false
+			}
+			return t.Before(time.Now())
+		},
+	}
+}
+
 // Handler serves the web UI.
 type Handler struct {
 	users       *repository.UserRepo
@@ -37,27 +55,12 @@ func NewHandler(
 	invites *repository.InviteCodeRepo,
 	serverDests *repository.ServerDestRepo,
 ) (*Handler, error) {
-	funcMap := template.FuncMap{
-		"add":       func(a, b int) int { return a + b },
-		"subtract":  func(a, b int) int { return a - b },
-		"eq":        func(a, b any) bool { return a == b },
-		"deref":     func(s *string) string { if s != nil { return *s }; return "" },
-		"derefUUID": func(u *uuid.UUID) uuid.UUID { if u != nil { return *u }; return uuid.Nil },
-		"derefTime": func(t *time.Time) time.Time { if t != nil { return *t }; return time.Time{} },
-		"expired": func(t *time.Time) bool {
-			if t == nil {
-				return false
-			}
-			return t.Before(time.Now())
-		},
-	}
-
 	tmplFS, err := fs.Sub(webstatic.TemplatesFS, "templates")
 	if err != nil {
 		return nil, err
 	}
 
-	tmpl, err := template.New("").Funcs(funcMap).ParseFS(tmplFS, "*.html")
+	tmpl, err := template.New("").Funcs(templateFuncMap()).ParseFS(tmplFS, "*.html")
 	if err != nil {
 		return nil, err
 	}
@@ -132,23 +135,8 @@ func (h *Handler) render(w http.ResponseWriter, name string, data map[string]any
 }
 
 func (h *Handler) renderPage(w http.ResponseWriter, page string, data map[string]any) {
-	funcMap := template.FuncMap{
-		"add":       func(a, b int) int { return a + b },
-		"subtract":  func(a, b int) int { return a - b },
-		"eq":        func(a, b any) bool { return a == b },
-		"deref":     func(s *string) string { if s != nil { return *s }; return "" },
-		"derefUUID": func(u *uuid.UUID) uuid.UUID { if u != nil { return *u }; return uuid.Nil },
-		"derefTime": func(t *time.Time) time.Time { if t != nil { return *t }; return time.Time{} },
-		"expired": func(t *time.Time) bool {
-			if t == nil {
-				return false
-			}
-			return t.Before(time.Now())
-		},
-	}
-
 	tmplFS, _ := fs.Sub(webstatic.TemplatesFS, "templates")
-	tmpl, err := template.New("").Funcs(funcMap).ParseFS(tmplFS, "base.html", page+".html")
+	tmpl, err := template.New("").Funcs(templateFuncMap()).ParseFS(tmplFS, "base.html", page+".html")
 	if err != nil {
 		http.Error(w, "template parse error: "+err.Error(), http.StatusInternalServerError)
 		return
