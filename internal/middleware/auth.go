@@ -62,11 +62,18 @@ func Auth(sessions *repository.SessionRepo) func(http.Handler) http.Handler {
 func RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if UserFromContext(r.Context()) == nil {
-			http.Error(w, `{"error":"authentication required"}`, http.StatusUnauthorized)
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"authentication required"}`))
+				return
+			}
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
 }
 
 // RequireRole rejects requests from users without the specified roles.
