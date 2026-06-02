@@ -8,6 +8,7 @@ import (
 	"github.com/TheDurtch/anime-request-server/internal/auth"
 	"github.com/TheDurtch/anime-request-server/internal/middleware"
 	"github.com/TheDurtch/anime-request-server/internal/models"
+	"github.com/TheDurtch/anime-request-server/internal/ratelimit"
 	"github.com/TheDurtch/anime-request-server/internal/repository"
 )
 
@@ -15,18 +16,35 @@ const sessionDuration = 24 * time.Hour
 
 // AuthHandler handles authentication endpoints.
 type AuthHandler struct {
-	users      *repository.UserRepo
-	sessions   *repository.SessionRepo
-	invites    *repository.InviteCodeRepo
+	users       *repository.UserRepo
+	sessions    *repository.SessionRepo
+	invites     *repository.InviteCodeRepo
+	loginLimiter *ratelimit.LoginLimiter
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(users *repository.UserRepo, sessions *repository.SessionRepo, invites *repository.InviteCodeRepo) *AuthHandler {
-	return &AuthHandler{users: users, sessions: sessions, invites: invites}
+func NewAuthHandler(users *repository.UserRepo, sessions *repository.SessionRepo, invites *repository.InviteCodeRepo, loginLimiter *ratelimit.LoginLimiter) *AuthHandler {
+	return &AuthHandler{users: users, sessions: sessions, invites: invites, loginLimiter: loginLimiter}
 }
 
 // Login handles POST /api/v1/auth/login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	clientIP := ratelimit.GetClientIP(r)
+
+	// Check if IP is banned
+	banned, notified := h.loginLimiter.IsBanned(clientIP)
+	if banned {
+		if notified {
+			// Already notified, just return 418 I'm a teapot
+			w.WriteHeader(http.StatusTeapot)
+			return
+		}
+		// First ban message
+		h.loginLimiter.MarkNotified(clientIP)
+		Error(w, http.StatusTooManyRequests, "too many failed login attempts - temporarily banned")
+		return
+	}
+
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -49,11 +67,19 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user == nil || !auth.CheckPassword(user.PasswordHash, req.Password) {
+		// Record failed attempt
+		nowBanned := h.loginLimiter.RecordFailedAttempt(clientIP)
+		if nowBanned {
+			h.loginLimiter.MarkNotified(clientIP)
+			Error(w, http.StatusTooManyRequests, "too many failed login attempts - temporarily banned")
+			return
+		}
 		Error(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
 	if user.Disabled {
+		// Don't record as failed attempt if account is disabled
 		Error(w, http.StatusForbidden, "account is disabled")
 		return
 	}
@@ -89,6 +115,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
+
+	// Record successful login (clears failed attempts)
+	h.loginLimiter.RecordSuccess(clientIP)
 
 	JSON(w, http.StatusOK, map[string]any{
 		"user":  user,

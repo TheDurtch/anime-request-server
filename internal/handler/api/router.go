@@ -2,13 +2,14 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/httprate"
-	"time"
 
 	"github.com/TheDurtch/anime-request-server/internal/middleware"
 	"github.com/TheDurtch/anime-request-server/internal/models"
+	"github.com/TheDurtch/anime-request-server/internal/ratelimit"
 	"github.com/TheDurtch/anime-request-server/internal/repository"
 )
 
@@ -19,10 +20,11 @@ func NewRouter(
 	requests *repository.RequestRepo,
 	invites *repository.InviteCodeRepo,
 	serverDests *repository.ServerDestRepo,
+	loginLimiter *ratelimit.LoginLimiter,
 ) chi.Router {
 	r := chi.NewRouter()
 
-	authHandler := NewAuthHandler(users, sessions, invites)
+	authHandler := NewAuthHandler(users, sessions, invites, loginLimiter)
 	requestHandler := NewRequestHandler(requests)
 	adminHandler := NewAdminHandler(users, invites, serverDests)
 

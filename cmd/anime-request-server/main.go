@@ -24,6 +24,7 @@ import (
 	"github.com/TheDurtch/anime-request-server/internal/handler/web"
 	"github.com/TheDurtch/anime-request-server/internal/middleware"
 	"github.com/TheDurtch/anime-request-server/internal/models"
+	"github.com/TheDurtch/anime-request-server/internal/ratelimit"
 	"github.com/TheDurtch/anime-request-server/internal/repository"
 )
 
@@ -190,6 +191,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	inviteRepo := repository.NewInviteCodeRepo(pool)
 	serverDestRepo := repository.NewServerDestRepo(pool)
 
+	// Create shared login limiter: 5 attempts per 5 minutes, 15 minute ban
+	loginLimiter := ratelimit.NewLoginLimiter(5, 5*time.Minute, 15*time.Minute)
+
 	// Router
 	r := chi.NewRouter()
 	r.Use(chimiddleware.Logger)
@@ -198,11 +202,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	r.Use(middleware.Auth(sessionRepo))
 
 	// API routes
-	r.Mount("/api/v1", api.NewRouter(userRepo, sessionRepo, requestRepo, inviteRepo, serverDestRepo))
+	r.Mount("/api/v1", api.NewRouter(userRepo, sessionRepo, requestRepo, inviteRepo, serverDestRepo, loginLimiter))
 
 	// Web UI
 	if cfg.WebUIEnabled {
-		webHandler, err := web.NewHandler(userRepo, sessionRepo, requestRepo, inviteRepo, serverDestRepo)
+		webHandler, err := web.NewHandler(userRepo, sessionRepo, requestRepo, inviteRepo, serverDestRepo, loginLimiter)
 		if err != nil {
 			return fmt.Errorf("initializing web UI: %w", err)
 		}

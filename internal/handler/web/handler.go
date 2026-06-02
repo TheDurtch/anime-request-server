@@ -13,6 +13,7 @@ import (
 	"github.com/TheDurtch/anime-request-server/internal/auth"
 	"github.com/TheDurtch/anime-request-server/internal/middleware"
 	"github.com/TheDurtch/anime-request-server/internal/models"
+	"github.com/TheDurtch/anime-request-server/internal/ratelimit"
 	"github.com/TheDurtch/anime-request-server/internal/repository"
 	webstatic "github.com/TheDurtch/anime-request-server/web"
 )
@@ -39,12 +40,13 @@ func templateFuncMap() template.FuncMap {
 
 // Handler serves the web UI.
 type Handler struct {
-	users       *repository.UserRepo
-	sessions    *repository.SessionRepo
-	requests    *repository.RequestRepo
-	invites     *repository.InviteCodeRepo
-	serverDests *repository.ServerDestRepo
-	templates   *template.Template
+	users        *repository.UserRepo
+	sessions     *repository.SessionRepo
+	requests     *repository.RequestRepo
+	invites      *repository.InviteCodeRepo
+	serverDests  *repository.ServerDestRepo
+	loginLimiter *ratelimit.LoginLimiter
+	templates    *template.Template
 }
 
 // NewHandler creates a new web UI handler.
@@ -54,6 +56,7 @@ func NewHandler(
 	requests *repository.RequestRepo,
 	invites *repository.InviteCodeRepo,
 	serverDests *repository.ServerDestRepo,
+	loginLimiter *ratelimit.LoginLimiter,
 ) (*Handler, error) {
 	tmplFS, err := fs.Sub(webstatic.TemplatesFS, "templates")
 	if err != nil {
@@ -66,12 +69,13 @@ func NewHandler(
 	}
 
 	return &Handler{
-		users:       users,
-		sessions:    sessions,
-		requests:    requests,
-		invites:     invites,
-		serverDests: serverDests,
-		templates:   tmpl,
+		users:        users,
+		sessions:     sessions,
+		requests:     requests,
+		invites:      invites,
+		serverDests:  serverDests,
+		loginLimiter: loginLimiter,
+		templates:    tmpl,
 	}, nil
 }
 
@@ -154,16 +158,33 @@ func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
+	clientIP := ratelimit.GetClientIP(r)
+
+	// Check if IP is banned
+	banned, _ := h.loginLimiter.IsBanned(clientIP)
+	if banned {
+		// For web UI, show error page (not 418)
+		h.renderPage(w, "login", map[string]any{"Error": "Too many failed login attempts - temporarily banned"})
+		return
+	}
+
 	username := strings.TrimSpace(r.FormValue("username"))
 	password := r.FormValue("password")
 	totpCode := r.FormValue("totp_code")
 
 	user, err := h.users.GetByUsername(r.Context(), username)
 	if err != nil || user == nil || !auth.CheckPassword(user.PasswordHash, password) {
+		// Record failed attempt
+		nowBanned := h.loginLimiter.RecordFailedAttempt(clientIP)
+		if nowBanned {
+			h.renderPage(w, "login", map[string]any{"Error": "Too many failed login attempts - temporarily banned"})
+			return
+		}
 		h.renderPage(w, "login", map[string]any{"Error": "Invalid credentials"})
 		return
 	}
 	if user.Disabled {
+		// Don't record as failed attempt if account is disabled
 		h.renderPage(w, "login", map[string]any{"Error": "Account is disabled"})
 		return
 	}
@@ -192,6 +213,10 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	})
+
+	// Record successful login (clears failed attempts)
+	h.loginLimiter.RecordSuccess(clientIP)
+
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
