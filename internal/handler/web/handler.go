@@ -502,13 +502,19 @@ func (h *Handler) userEditSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	roleStr := r.FormValue("role")
+	if roleStr != string(models.RoleAdmin) && roleStr != string(models.RoleMod) && roleStr != string(models.RoleUser) {
+		http.Error(w, "invalid role", http.StatusBadRequest)
+		return
+	}
 	role := models.Role(roleStr)
 	canBatchAdd := r.FormValue("can_batch_add") == "true"
 	disabled := r.FormValue("disabled") == "true"
 
-	h.users.Update(r.Context(), id, &role, &canBatchAdd, &disabled)
+	if err := h.users.Update(r.Context(), id, &role, &canBatchAdd, &disabled); err != nil {
+		http.Error(w, "failed to update user", http.StatusInternalServerError)
+		return
+	}
 	http.Redirect(w, r, "/manage/users", http.StatusSeeOther)
-}
 
 func (h *Handler) invitesPage(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
