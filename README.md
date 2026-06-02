@@ -6,18 +6,31 @@ A Go server for managing anime requests — includes an embedded web UI and a JS
 
 The server is a **request board**. It presents what anime is wanted and what state each request is in. It does **not** acquire, download, or monitor anything — all status changes are made manually by admin/mod users.
 
+## Prerequisites
+
+- **Go 1.25+** — required to build from source
+- **PostgreSQL** — the only supported database backend
+
+## Building from source
+
+```bash
+go build ./cmd/anime-request-server/
+```
+
+This produces a single `anime-request-server` binary with the web UI embedded.
+
 ## Quick start
 
 ```bash
-# 1. Set environment variables (or create a .env file)
+# 1. Set environment variables (or copy .env.example)
 export DATABASE_URL="******localhost:5432/anime_requests?sslmode=disable"
 export SESSION_SECRET="your-random-secret-at-least-32-chars"
 
 # 2. Initialize the database and create admin user
-anime-request-server init
+./anime-request-server init
 
 # 3. Start the server
-anime-request-server serve
+./anime-request-server serve
 ```
 
 ## Configuration
@@ -188,9 +201,31 @@ All API endpoints are under `/api/v1/`.
 - Secrets via environment variables only.
 - Assumes reverse proxy or LAN use — no built-in HTTPS.
 
+## Project structure
+
+```
+cmd/anime-request-server/   CLI entry point (init, serve, create-user, generate-invite)
+internal/
+  auth/                     Password hashing, session tokens, invite code generation
+  config/                   Environment variable loading
+  database/                 PostgreSQL connection, embedded migrations
+  handler/api/              JSON API handlers and router
+  handler/web/              Web UI handlers (HTML templates)
+  middleware/               Auth middleware (session + role checks)
+  models/                   Shared types (User, Request, Role, Status, etc.)
+  repository/               Database queries (users, sessions, requests, invites, destinations)
+web/
+  static/                   CSS and JS assets (embedded)
+  templates/                HTML templates (embedded)
+```
+
 ## Future TODOs
 
 - Discord webhooks for new requests and status changes (with silent option).
 - Import/export requests as JSON.
 - Status change audit log.
 - Prometheus metrics endpoint.
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
