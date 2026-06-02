@@ -194,7 +194,7 @@ func (h *AdminHandler) ListServerDestinations(w http.ResponseWriter, r *http.Req
 	JSON(w, http.StatusOK, dests)
 }
 
-// CreateServerDestination handles POST /api/v1/admin/server-destinations
+// CreateServerDestination handles POST /api/v1/server-destinations
 func (h *AdminHandler) CreateServerDestination(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
 
