@@ -58,7 +58,7 @@ The server is a **request board**. It presents what anime is wanted and what sta
 |---------------------|----------------------------------------------------|
 | `id`                | PK                                                 |
 | `name`              | required — show title                              |
-| `category`          | `current_future` or `already_complete`              |
+| `category`          | `current_future` or `finished_airing`               |
 | `status`            | `new` / `done` / `need_to_get` / `acquiring` / `processing` / `syncing` (default `new`) |
 | `requested_by`      | FK → users.id                                      |
 | `server_destination`| nullable — e.g. "Server A", "Server B"             |
@@ -80,8 +80,8 @@ The server is a **request board**. It presents what anime is wanted and what sta
 
 The Web UI should:
 
-- Show separate sections/tabs for **Current / Future** and **Already Complete** requests.
-- Provide a filter for `category` (`all`, `current_future`, `already_complete`).
+- Show separate sections/tabs for **Current / Future** and **Finished Airing** requests.
+- Provide a filter for `category` (`all`, `current_future`, `finished_airing`).
 - Allow filtering by `status` within each category.
 
 ## API baseline
