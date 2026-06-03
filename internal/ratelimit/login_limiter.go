@@ -161,8 +161,10 @@ func GetClientIP(r *http.Request) string {
 	// Check X-Forwarded-For (most common with reverse proxies)
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		// Take the first IP in the comma-separated list (closest to client)
-		parts := strings.Split(xff, ",")
-		return strings.TrimSpace(parts[0])
+		first, _, _ := strings.Cut(xff, ",")
+		if ip := strings.TrimSpace(first); ip != "" {
+			return ip
+		}
 	}
 
 	// Check X-Real-IP
