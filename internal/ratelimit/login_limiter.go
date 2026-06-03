@@ -166,8 +166,8 @@ func GetClientIP(r *http.Request) string {
 	}
 
 	// Check X-Real-IP
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
+	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
+		return xri
 	}
 
 	// Fallback to RemoteAddr — use net.SplitHostPort for proper IPv6 handling
