@@ -9,6 +9,7 @@ import (
 	"github.com/TheDurtch/anime-request-server/internal/middleware"
 	"github.com/TheDurtch/anime-request-server/internal/models"
 	"github.com/TheDurtch/anime-request-server/internal/ratelimit"
+	"github.com/TheDurtch/anime-request-server/internal/repository"
 	"github.com/pquerna/otp/totp"
 )
 
@@ -90,7 +91,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			Error(w, http.StatusUnauthorized, "TOTP code required")
 			return
 		}
-		if !totp.Validate(req.TOTPCode, user.TOTPSecret) {
+		if user.TOTPSecret == nil || !totp.Validate(req.TOTPCode, *user.TOTPSecret) {
 			Error(w, http.StatusUnauthorized, "invalid TOTP code")
 			return
 		}
