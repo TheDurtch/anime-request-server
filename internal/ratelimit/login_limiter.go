@@ -1,7 +1,9 @@
 package ratelimit
 
 import (
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -154,29 +156,27 @@ func (l *LoginLimiter) cleanup() {
 
 // GetClientIP extracts the client IP from the request.
 // Checks X-Forwarded-For and X-Real-IP headers, falls back to RemoteAddr.
+// Uses net.SplitHostPort for proper IPv6 support.
 func GetClientIP(r *http.Request) string {
 	// Check X-Forwarded-For (most common with reverse proxies)
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP in the list
-		for i, c := range xff {
-			if c == ',' || c == ' ' {
-				return xff[:i]
-			}
+		// Take the first IP in the comma-separated list (closest to client)
+		first, _, _ := strings.Cut(xff, ",")
+		if ip := strings.TrimSpace(first); ip != "" {
+			return ip
 		}
-		return xff
 	}
 
 	// Check X-Real-IP
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
 		return xri
 	}
 
-	// Fallback to RemoteAddr (strip port)
-	ip := r.RemoteAddr
-	for i := len(ip) - 1; i >= 0; i-- {
-		if ip[i] == ':' {
-			return ip[:i]
-		}
+	// Fallback to RemoteAddr — use net.SplitHostPort for proper IPv6 handling
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
 	}
-	return ip
+
+	return r.RemoteAddr
 }
