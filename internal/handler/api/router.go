@@ -21,16 +21,20 @@ func NewRouter(
 	invites *repository.InviteCodeRepo,
 	serverDests *repository.ServerDestRepo,
 	loginLimiter *ratelimit.LoginLimiter,
+	cookieSecure bool,
 ) chi.Router {
 	r := chi.NewRouter()
 
-	authHandler := NewAuthHandler(users, sessions, invites, loginLimiter)
+	authHandler := NewAuthHandler(users, sessions, invites, loginLimiter, cookieSecure)
 	requestHandler := NewRequestHandler(requests)
 	adminHandler := NewAdminHandler(users, invites, serverDests)
 
-	// Auth routes (public)
+	// Auth routes (public). Key the limiter on the trusted client IP (the same
+	// identity the LoginLimiter uses) rather than the raw RemoteAddr.
 	r.Route("/auth", func(r chi.Router) {
-		r.Use(httprate.LimitByIP(10, 1*time.Minute))
+		r.Use(httprate.Limit(10, 1*time.Minute, httprate.WithKeyFuncs(func(req *http.Request) (string, error) {
+			return loginLimiter.ClientIP(req), nil
+		})))
 		r.Post("/login", authHandler.Login)
 		r.Post("/redeem-invite", authHandler.RedeemInvite)
 	})

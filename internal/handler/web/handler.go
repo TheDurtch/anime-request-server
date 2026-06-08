@@ -1,9 +1,12 @@
 package web
 
 import (
+	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,7 +64,10 @@ type Handler struct {
 	invites      *repository.InviteCodeRepo
 	serverDests  *repository.ServerDestRepo
 	loginLimiter *ratelimit.LoginLimiter
-	templates    *template.Template
+	cookieSecure bool
+	// pages holds one precompiled template set per page (base.html plus the
+	// page's own template), keyed by page name (filename without ".html").
+	pages map[string]*template.Template
 }
 
 // NewHandler creates a new web UI handler.
@@ -72,15 +78,32 @@ func NewHandler(
 	invites *repository.InviteCodeRepo,
 	serverDests *repository.ServerDestRepo,
 	loginLimiter *ratelimit.LoginLimiter,
+	cookieSecure bool,
 ) (*Handler, error) {
 	tmplFS, err := fs.Sub(webstatic.TemplatesFS, "templates")
 	if err != nil {
 		return nil, err
 	}
 
-	tmpl, err := template.New("").Funcs(templateFuncMap()).ParseFS(tmplFS, "*.html")
+	entries, err := fs.ReadDir(tmplFS, ".")
 	if err != nil {
 		return nil, err
+	}
+
+	// Precompile each page as base.html + the page template once at startup.
+	// Parsing per page (rather than all "*.html" into one set) keeps each
+	// page's "content"/"title" blocks from clobbering the others.
+	pages := make(map[string]*template.Template)
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || name == "base.html" || !strings.HasSuffix(name, ".html") {
+			continue
+		}
+		tmpl, err := template.New("").Funcs(templateFuncMap()).ParseFS(tmplFS, "base.html", name)
+		if err != nil {
+			return nil, fmt.Errorf("parsing template %s: %w", name, err)
+		}
+		pages[strings.TrimSuffix(name, ".html")] = tmpl
 	}
 
 	return &Handler{
@@ -90,7 +113,8 @@ func NewHandler(
 		invites:      invites,
 		serverDests:  serverDests,
 		loginLimiter: loginLimiter,
-		templates:    tmpl,
+		cookieSecure: cookieSecure,
+		pages:        pages,
 	}, nil
 }
 
@@ -150,36 +174,39 @@ func (h *Handler) Routes(sessionRepo *repository.SessionRepo) chi.Router {
 }
 
 func (h *Handler) inviteDelete(w http.ResponseWriter, r *http.Request) {
-    id, err := uuid.Parse(chi.URLParam(r, "id"))
-    if err != nil {
-        http.Error(w, "invalid ID", http.StatusBadRequest)
-        return
-    }
-    if err := h.invites.Delete(r.Context(), id); err != nil {
-        http.Error(w, "failed to delete invite code", http.StatusInternalServerError)
-        return
-    }
-    http.Redirect(w, r, "/manage/invites", http.StatusSeeOther)
-}
-
-func (h *Handler) render(w http.ResponseWriter, name string, data map[string]any) {
-	// Parse base + specific template
-	err := h.templates.ExecuteTemplate(w, "base", data)
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
-		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "invalid ID", http.StatusBadRequest)
+		return
 	}
+	if err := h.invites.Delete(r.Context(), id); err != nil {
+		http.Error(w, "failed to delete invite code", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/manage/invites", http.StatusSeeOther)
 }
 
 func (h *Handler) renderPage(w http.ResponseWriter, page string, data map[string]any) {
-	tmplFS, _ := fs.Sub(webstatic.TemplatesFS, "templates")
-	tmpl, err := template.New("").Funcs(templateFuncMap()).ParseFS(tmplFS, "base.html", page+".html")
-	if err != nil {
-		http.Error(w, "template parse error: "+err.Error(), http.StatusInternalServerError)
+	tmpl, ok := h.pages[page]
+	if !ok {
+		http.Error(w, "unknown page: "+page, http.StatusInternalServerError)
 		return
 	}
-
 	if err := tmpl.ExecuteTemplate(w, "base", data); err != nil {
 		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// sessionCookie builds the session cookie. maxAge < 0 clears it.
+func (h *Handler) sessionCookie(token string, maxAge int) *http.Cookie {
+	return &http.Cookie{
+		Name:     "session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   h.cookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   maxAge,
 	}
 }
 
@@ -190,7 +217,7 @@ func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
-	clientIP := ratelimit.GetClientIP(r)
+	clientIP := h.loginLimiter.ClientIP(r)
 
 	// Check if IP is banned
 	banned, _ := h.loginLimiter.IsBanned(clientIP)
@@ -205,7 +232,20 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	totpCode := r.FormValue("totp_code")
 
 	user, err := h.users.GetByUsername(r.Context(), username)
-	if err != nil || user == nil || !auth.CheckPassword(user.PasswordHash, password) {
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Always spend bcrypt time, even for an unknown user, so response timing
+	// does not reveal which usernames exist.
+	authOK := false
+	if user != nil {
+		authOK = auth.CheckPassword(user.PasswordHash, password)
+	} else {
+		auth.CheckPasswordDummy(password)
+	}
+	if !authOK {
 		// Record failed attempt
 		nowBanned := h.loginLimiter.RecordFailedAttempt(clientIP)
 		if nowBanned {
@@ -220,9 +260,16 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		h.renderPage(w, "login", map[string]any{"Error": "Account is disabled"})
 		return
 	}
-	if user.TOTPEnabled && totpCode == "" {
-		h.renderPage(w, "login", map[string]any{"Error": "2FA code required"})
-		return
+	// TOTP (2FA): fail closed when enabled.
+	if user.TOTPEnabled {
+		if totpCode == "" {
+			h.renderPage(w, "login", map[string]any{"Error": "2FA code required"})
+			return
+		}
+		if user.TOTPSecret == nil || !auth.ValidateTOTP(*user.TOTPSecret, totpCode) {
+			h.renderPage(w, "login", map[string]any{"Error": "Invalid 2FA code"})
+			return
+		}
 	}
 
 	token, tokenHash, err := auth.GenerateSessionToken()
@@ -237,14 +284,7 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(sessionDuration.Seconds()),
-	})
+	http.SetCookie(w, h.sessionCookie(token, int(sessionDuration.Seconds())))
 
 	// Record successful login (clears failed attempts)
 	h.loginLimiter.RecordSuccess(clientIP)
@@ -257,13 +297,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	if session != nil {
 		h.sessions.Delete(r.Context(), session.ID)
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		MaxAge:   -1,
-	})
+	http.SetCookie(w, h.sessionCookie("", -1))
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
@@ -322,14 +356,7 @@ func (h *Handler) redeemInviteSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(sessionDuration.Seconds()),
-	})
+	http.SetCookie(w, h.sessionCookie(token, int(sessionDuration.Seconds())))
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -408,7 +435,11 @@ func (h *Handler) requestNewSubmit(w http.ResponseWriter, r *http.Request) {
 
 	_, err = h.requests.Create(r.Context(), name, models.Category(category), user.ID)
 	if err != nil {
-		h.renderPage(w, "request_new", map[string]any{"User": user, "Error": "Failed to create request", "Name": name, "Category": category})
+		msg := "Failed to create request"
+		if strings.Contains(err.Error(), "already exists") {
+			msg = "A request with this name already exists"
+		}
+		h.renderPage(w, "request_new", map[string]any{"User": user, "Error": msg, "Name": name, "Category": category})
 		return
 	}
 
@@ -453,7 +484,7 @@ func (h *Handler) batchAddSubmit(w http.ResponseWriter, r *http.Request) {
 
 	h.renderPage(w, "batch_add", map[string]any{
 		"User":    user,
-		"Success": strings.Replace("Added X entries via batch add.", "X", strings.TrimSpace(intToStr(count)), 1),
+		"Success": fmt.Sprintf("Added %d entries via batch add.", count),
 	})
 }
 
@@ -525,15 +556,16 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 
 	var anidbPtr *string
 	if anidbURL != "" {
-		anidbPtr = &anidbURL
-	} else {
-		// Check if we're trying to clear an existing AniDB URL
-		if existing.AnidbURL != nil {
-			// Don't allow clearing - set to "none" instead
-			none := "none"
-			anidbPtr = &none
+		if !isValidHTTPURL(anidbURL) {
+			http.Error(w, "AniDB URL must be a valid http(s) URL", http.StatusBadRequest)
+			return
 		}
+		anidbPtr = &anidbURL
 	}
+	// An empty value intentionally leaves the existing URL unchanged (anidbPtr
+	// stays nil) rather than clearing it. By design: every anime has an AniDB
+	// entry, so a wrong URL is corrected by entering the right one and never
+	// needs to be cleared. (This also replaces the old "none" sentinel.)
 
 	// Update basic fields (status, category, anidb_url)
 	if err := h.requests.Update(r.Context(), id, status, category, anidbPtr); err != nil {
@@ -732,27 +764,19 @@ func intParam(s string, def int) int {
 	if s == "" {
 		return def
 	}
-	n := 0
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return def
-		}
-		n = n*10 + int(c-'0')
-	}
-	if n < 1 {
+	// strconv.Atoi reports ErrRange on overflow, so this is overflow-safe.
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 {
 		return def
 	}
 	return n
 }
 
-func intToStr(n int) string {
-	if n == 0 {
-		return "0"
+// isValidHTTPURL reports whether s is a well-formed absolute http(s) URL.
+func isValidHTTPURL(s string) bool {
+	u, err := url.ParseRequestURI(s)
+	if err != nil {
+		return false
 	}
-	s := ""
-	for n > 0 {
-		s = string(rune('0'+n%10)) + s
-		n /= 10
-	}
-	return s
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }

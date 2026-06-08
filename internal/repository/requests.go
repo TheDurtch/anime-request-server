@@ -2,11 +2,13 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/TheDurtch/anime-request-server/internal/models"
@@ -39,6 +41,13 @@ func (r *RequestRepo) Create(ctx context.Context, name string, category models.C
 		VALUES ($1, $2, $3, $4)
 	`, id, name, string(category), requestedBy)
 	if err != nil {
+		// Unique index on LOWER(name) (migration 007) — surfaces a race that
+		// slipped past the app-level duplicate check. Match the specific
+		// unique-violation (23505) on that index rather than the error string.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_anime_requests_name_lower" {
+			return nil, fmt.Errorf("a request with this name already exists")
+		}
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	return r.GetByID(ctx, id)
@@ -54,19 +63,34 @@ func (r *RequestRepo) CreateBatch(ctx context.Context, names []string, requested
 
 	batch := &pgx.Batch{}
 	for _, name := range names {
-		batch.Queue(`INSERT INTO anime_requests (id, name, category, requested_by) VALUES ($1, $2, 'batch_add', $3)`, uuid.New(), name, requestedBy)
+		// Skip names that collide (case-insensitively) with an existing row or
+		// an earlier item in this batch, rather than failing the whole batch.
+		batch.Queue(`INSERT INTO anime_requests (id, name, category, requested_by) VALUES ($1, $2, 'batch_add', $3) ON CONFLICT (LOWER(name)) DO NOTHING`, uuid.New(), name, requestedBy)
 	}
 
 	br := tx.SendBatch(ctx, batch)
-	defer br.Close()
 
 	count := 0
+	var execErr error
 	for range names {
-		if _, err := br.Exec(); err != nil {
-			return count, fmt.Errorf("batch insert item %d: %w", count, err)
+		tag, err := br.Exec()
+		if err != nil {
+			execErr = fmt.Errorf("batch insert: %w", err)
+			break
 		}
-		count++
+		// RowsAffected is 0 for a skipped conflict, 1 for an actual insert.
+		count += int(tag.RowsAffected())
 	}
+
+	// Close the batch exactly once, before committing — the batch holds the
+	// connection until closed. The deferred tx.Rollback covers the error paths.
+	if cerr := br.Close(); cerr != nil && execErr == nil {
+		execErr = fmt.Errorf("closing batch: %w", cerr)
+	}
+	if execErr != nil {
+		return count, execErr
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return count, fmt.Errorf("commit batch insert: %w", err)
 	}
@@ -298,7 +322,6 @@ func (r *RequestRepo) GetDestinationCount(ctx context.Context, requestID uuid.UU
 	`, requestID).Scan(&count)
 	return count, err
 }
-
 
 // CheckDuplicate checks if a request with the same name already exists (case-insensitive).
 func (r *RequestRepo) CheckDuplicate(ctx context.Context, name string) (bool, error) {

@@ -16,20 +16,34 @@ const sessionDuration = 24 * time.Hour
 
 // AuthHandler handles authentication endpoints.
 type AuthHandler struct {
-	users       *repository.UserRepo
-	sessions    *repository.SessionRepo
-	invites     *repository.InviteCodeRepo
+	users        *repository.UserRepo
+	sessions     *repository.SessionRepo
+	invites      *repository.InviteCodeRepo
 	loginLimiter *ratelimit.LoginLimiter
+	cookieSecure bool
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(users *repository.UserRepo, sessions *repository.SessionRepo, invites *repository.InviteCodeRepo, loginLimiter *ratelimit.LoginLimiter) *AuthHandler {
-	return &AuthHandler{users: users, sessions: sessions, invites: invites, loginLimiter: loginLimiter}
+func NewAuthHandler(users *repository.UserRepo, sessions *repository.SessionRepo, invites *repository.InviteCodeRepo, loginLimiter *ratelimit.LoginLimiter, cookieSecure bool) *AuthHandler {
+	return &AuthHandler{users: users, sessions: sessions, invites: invites, loginLimiter: loginLimiter, cookieSecure: cookieSecure}
+}
+
+// sessionCookie builds the session cookie. maxAge < 0 clears it.
+func (h *AuthHandler) sessionCookie(token string, maxAge int) *http.Cookie {
+	return &http.Cookie{
+		Name:     "session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   h.cookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   maxAge,
+	}
 }
 
 // Login handles POST /api/v1/auth/login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	clientIP := ratelimit.GetClientIP(r)
+	clientIP := h.loginLimiter.ClientIP(r)
 
 	// Check if IP is banned
 	banned, notified := h.loginLimiter.IsBanned(clientIP)
@@ -66,7 +80,16 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	if user == nil || !auth.CheckPassword(user.PasswordHash, req.Password) {
+
+	// Always spend bcrypt time, even for an unknown user, so response timing
+	// does not reveal which usernames exist.
+	authOK := false
+	if user != nil {
+		authOK = auth.CheckPassword(user.PasswordHash, req.Password)
+	} else {
+		auth.CheckPasswordDummy(req.Password)
+	}
+	if !authOK {
 		// Record failed attempt
 		nowBanned := h.loginLimiter.RecordFailedAttempt(clientIP)
 		if nowBanned {
@@ -84,14 +107,17 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TOTP check (if enabled for user)
+	// TOTP check (if enabled for user). Fails closed: a missing, malformed, or
+	// incorrect code is rejected.
 	if user.TOTPEnabled {
 		if req.TOTPCode == "" {
 			Error(w, http.StatusUnauthorized, "TOTP code required")
 			return
 		}
-		// TODO: validate TOTP code against user.TOTPSecret
-		// For now, this is a placeholder for TOTP validation
+		if user.TOTPSecret == nil || !auth.ValidateTOTP(*user.TOTPSecret, req.TOTPCode) {
+			Error(w, http.StatusUnauthorized, "invalid TOTP code")
+			return
+		}
 	}
 
 	token, tokenHash, err := auth.GenerateSessionToken()
@@ -107,14 +133,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(sessionDuration.Seconds()),
-	})
+	http.SetCookie(w, h.sessionCookie(token, int(sessionDuration.Seconds())))
 
 	// Record successful login (clears failed attempts)
 	h.loginLimiter.RecordSuccess(clientIP)
@@ -138,13 +157,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		MaxAge:   -1,
-	})
+	http.SetCookie(w, h.sessionCookie("", -1))
 
 	JSON(w, http.StatusOK, map[string]string{"message": "logged out"})
 }
@@ -224,14 +237,7 @@ func (h *AuthHandler) RedeemInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(sessionDuration.Seconds()),
-	})
+	http.SetCookie(w, h.sessionCookie(token, int(sessionDuration.Seconds())))
 
 	JSON(w, http.StatusCreated, map[string]any{
 		"user":  user,

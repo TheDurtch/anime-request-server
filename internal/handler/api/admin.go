@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -140,12 +142,11 @@ func (h *AdminHandler) GenerateInvite(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ExpiresInHours *int `json:"expires_in_hours"`
 	}
-	// Body is optional, but if provided it must be valid JSON.
-	if r.Body != http.NoBody {
-		if err := Decode(r, &req); err != nil {
-			Error(w, http.StatusBadRequest, "invalid request body")
-			return
-		}
+	// Body is optional; an empty body (io.EOF) means "use defaults". Any other
+	// decode error is a genuine bad request.
+	if err := Decode(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		Error(w, http.StatusBadRequest, "invalid request body")
+		return
 	}
 	code, err := auth.GenerateInviteCode()
 	if err != nil {

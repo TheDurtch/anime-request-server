@@ -27,6 +27,28 @@ func CheckPassword(hash, password string) bool {
 	return err == nil
 }
 
+// dummyPasswordHash is a precomputed bcrypt hash used to equalize response time
+// when authenticating a username that does not exist, mitigating username
+// enumeration via timing. Generated once at startup at the same cost as real
+// hashes; we fail fast if bcrypt is unusable so the mitigation can't silently
+// degrade to a fast nil-hash comparison.
+var dummyPasswordHash []byte
+
+func init() {
+	h, err := bcrypt.GenerateFromPassword([]byte("password-timing-equalizer"), bcryptCost)
+	if err != nil {
+		panic("auth: generating dummy password hash: " + err.Error())
+	}
+	dummyPasswordHash = h
+}
+
+// CheckPasswordDummy performs a bcrypt comparison against a fixed dummy hash and
+// discards the result. Call it on the no-such-user path so that login timing
+// matches the path where a real user's password is verified.
+func CheckPasswordDummy(password string) {
+	_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
+}
+
 // GenerateSessionToken creates a cryptographically random session token.
 func GenerateSessionToken() (token string, hash string, err error) {
 	b := make([]byte, 32)

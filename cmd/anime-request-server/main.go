@@ -191,36 +191,25 @@ func runServe(cmd *cobra.Command, args []string) error {
 	inviteRepo := repository.NewInviteCodeRepo(pool)
 	serverDestRepo := repository.NewServerDestRepo(pool)
 
-	// Create shared login limiter: 5 attempts per 5 minutes, 15 minute ban
-	loginLimiter := ratelimit.NewLoginLimiter(5, 5*time.Minute, 15*time.Minute)
+	// Create shared login limiter: 5 attempts per 5 minutes, 15 minute ban.
+	// The limiter keys on the trusted client IP (see config.RealIPHeader).
+	loginLimiter := ratelimit.NewLoginLimiter(5, 5*time.Minute, 15*time.Minute, cfg.RealIPHeader)
 
-	// Router
+	// Router. We deliberately do not use chimiddleware.RealIP: it rewrites
+	// RemoteAddr from spoofable client headers with a fixed precedence. Client
+	// IP is instead derived from the explicitly configured trusted header via
+	// loginLimiter.ClientIP / ratelimit.GetClientIP.
 	r := chi.NewRouter()
-	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(middleware.Auth(sessionRepo))
-	r.Use(func(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        slog.Info("request headers",
-            "remote", r.RemoteAddr,
-            "cf_ip", r.Header.Get("CF-Connecting-IP"),
-            "xff", r.Header.Get("X-Forwarded-For"),
-            "xri", r.Header.Get("X-Real-IP"),
-            "cf_country", r.Header.Get("CF-IPCountry"),
-            "ua", r.Header.Get("User-Agent"),
-        )
-        next.ServeHTTP(w, r)
-        })
-    })
-
 
 	// API routes
-	r.Mount("/api/v1", api.NewRouter(userRepo, sessionRepo, requestRepo, inviteRepo, serverDestRepo, loginLimiter))
+	r.Mount("/api/v1", api.NewRouter(userRepo, sessionRepo, requestRepo, inviteRepo, serverDestRepo, loginLimiter, cfg.CookieSecure))
 
 	// Web UI
 	if cfg.WebUIEnabled {
-		webHandler, err := web.NewHandler(userRepo, sessionRepo, requestRepo, inviteRepo, serverDestRepo, loginLimiter)
+		webHandler, err := web.NewHandler(userRepo, sessionRepo, requestRepo, inviteRepo, serverDestRepo, loginLimiter, cfg.CookieSecure)
 		if err != nil {
 			return fmt.Errorf("initializing web UI: %w", err)
 		}

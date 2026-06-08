@@ -24,7 +24,9 @@ This produces a single `anime-request-server` binary with the web UI embedded.
 ```bash
 # 1. Set environment variables (or copy .env.example)
 export DATABASE_URL="******localhost:5432/anime_requests?sslmode=disable"
-export SESSION_SECRET="your-random-secret-at-least-32-chars"
+# SESSION_SECRET is currently unused (optional). For local dev over plain
+# HTTP, disable Secure cookies so the session cookie is actually sent:
+export COOKIE_SECURE=false
 
 # 2. Initialize the database and create admin user
 ./anime-request-server init
@@ -38,10 +40,12 @@ export SESSION_SECRET="your-random-secret-at-least-32-chars"
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | Yes | — | PostgreSQL connection string |
-| `SESSION_SECRET` | Yes | — | Secret for session token hashing |
+| `SESSION_SECRET` | No | — | Currently unused; reserved for future cookie signing |
 | `SERVER_HOST` | No | `0.0.0.0` | Bind address |
 | `SERVER_PORT` | No | `8080` | HTTP port |
 | `WEBUI_ENABLED` | No | `true` | Set to `false` for API-only mode |
+| `REAL_IP_HEADER` | No | — | Proxy header trusted for the client IP in login rate limiting. Empty = trust none (use TCP peer). E.g. `CF-Connecting-IP`, `X-Forwarded-For` |
+| `COOKIE_SECURE` | No | `true` | `Secure` flag on session cookies; set `false` only for local HTTP dev |
 
 ## CLI commands
 
@@ -77,7 +81,7 @@ anime-request-server generate-invite \
    - **status** → `need_to_get`, `acquiring`, `processing`, `syncing`, `done`.
    - **category** → can change `batch_add` to `current_future` or `finished_airing`.
    - **server destinations** → one or more managed server names (e.g. "Server A", "Server B").
-   - **AniDB URL** → link to the show page (cannot be cleared once set).
+   - **AniDB URL** → link to the show page; must be a valid http(s) URL, and cannot be cleared once set.
 
 ## Batch add
 
@@ -88,7 +92,7 @@ POST /api/v1/requests/batch
 { "names": ["Show A", "Show B", "Show C"], "category": "batch_add" }
 ```
 
-All entries are created with category `batch_add` so mods know they haven't been categorized yet.
+All entries are created with category `batch_add` so mods know they haven't been categorized yet. Names that duplicate an existing request (case-insensitive) are skipped; the response reports how many were actually added.
 
 ## Data model
 
@@ -128,7 +132,7 @@ All entries are created with category `batch_add` so mods know they haven't been
 | Column                | Notes                                              |
 |-----------------------|----------------------------------------------------|
 | `id`                  | UUID PK                                            |
-| `name`                | required — show title                              |
+| `name`                | required — show title; unique (case-insensitive)   |
 | `category`            | `current_future` / `finished_airing` / `batch_add` |
 | `status`              | `new` / `done` / `need_to_get` / `acquiring` / `processing` / `syncing` (default `new`) |
 | `requested_by`        | FK → users.id                                      |
@@ -202,13 +206,13 @@ All API endpoints are under `/api/v1/`.
 ## Security
 
 - Passwords hashed with bcrypt (pure Go, no CGO).
-- Server-side sessions stored in PostgreSQL.
-- Constant-time comparison for credential checks.
-- Rate-limited login endpoint (in-memory, per IP).
-- Session tokens are SHA-256 hashed before storage.
-- Optional TOTP 2FA (non-mandatory).
+- Server-side sessions stored in PostgreSQL; tokens are SHA-256 hashed before storage.
+- Login verification spends bcrypt time even for unknown usernames, to resist username enumeration via response timing.
+- Rate-limited login endpoint (in-memory, per client IP) with temporary bans. **Behind a reverse proxy you must set `REAL_IP_HEADER`** to the header your proxy populates with the real client IP (e.g. `CF-Connecting-IP`, `X-Forwarded-For`), or every request shares the proxy's IP and the limiter is useless. If the server is directly exposed, leave it empty so spoofable forwarding headers are ignored.
+- Session cookies are `HttpOnly` + `SameSite=Lax`, and `Secure` by default (`COOKIE_SECURE`).
+- TOTP 2FA: login-time validation is implemented and fails closed when enabled, but there is **no enrollment flow yet**, so 2FA cannot currently be turned on through the app.
 - Secrets via environment variables only.
-- Assumes reverse proxy or LAN use — no built-in HTTPS.
+- Assumes a reverse proxy or LAN use — no built-in HTTPS.
 
 ## Project structure
 
@@ -230,6 +234,7 @@ web/
 
 ## Future TODOs
 
+- TOTP 2FA enrollment flow (generate secret + QR, enable per user) — login-time validation is already implemented.
 - Discord webhooks for new requests and status changes (with silent option).
 - Import/export requests as JSON.
 - Status change audit log.
