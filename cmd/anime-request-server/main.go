@@ -196,10 +196,24 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Router
 	r := chi.NewRouter()
+	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
-	r.Use(chimiddleware.RealIP)
 	r.Use(middleware.Auth(sessionRepo))
+	r.Use(func(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        slog.Info("request headers",
+            "remote", r.RemoteAddr,
+            "cf_ip", r.Header.Get("CF-Connecting-IP"),
+            "xff", r.Header.Get("X-Forwarded-For"),
+            "xri", r.Header.Get("X-Real-IP"),
+            "cf_country", r.Header.Get("CF-IPCountry"),
+            "ua", r.Header.Get("User-Agent"),
+        )
+        next.ServeHTTP(w, r)
+        })
+    })
+
 
 	// API routes
 	r.Mount("/api/v1", api.NewRouter(userRepo, sessionRepo, requestRepo, inviteRepo, serverDestRepo, loginLimiter))
