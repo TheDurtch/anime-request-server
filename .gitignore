@@ -33,3 +33,4 @@ go.work.sum
 # .vscode/
 anime-request-server
 .env
+.notes
