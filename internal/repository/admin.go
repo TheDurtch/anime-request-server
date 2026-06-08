@@ -91,6 +91,15 @@ func (r *InviteCodeRepo) List(ctx context.Context) ([]models.InviteCode, error) 
 	return codes, nil
 }
 
+// Delete removes an invite code by ID.
+func (r *InviteCodeRepo) Delete(ctx context.Context, id uuid.UUID) error {
+    _, err := r.pool.Exec(ctx, `DELETE FROM invite_codes WHERE id = $1`, id)
+    if err != nil {
+        return fmt.Errorf("deleting invite code: %w", err)
+    }
+    return nil
+}
+
 // ServerDestRepo handles server destination database operations.
 type ServerDestRepo struct {
 	pool *pgxpool.Pool
