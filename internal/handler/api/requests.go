@@ -170,9 +170,12 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 		category = &c
 	}
 
-	// Handle AniDB URL. A non-empty value must be a valid http(s) URL. An empty
-	// string leaves the existing value unchanged (we neither clear it nor write
-	// a "none" sentinel); to update it, send a real URL.
+	// Handle AniDB URL. A non-empty value must be a valid http(s) URL and
+	// replaces the current one. An empty string intentionally leaves the
+	// existing value unchanged rather than clearing it: every anime has an
+	// AniDB entry, so a wrong URL is corrected by submitting the right one and
+	// never needs to be cleared. This no-clear behavior is by design (and
+	// replaces the old "none" sentinel) — not an oversight.
 	var anidbURL *string
 	if req.AnidbURL != nil && *req.AnidbURL != "" {
 		if !isValidHTTPURL(*req.AnidbURL) {

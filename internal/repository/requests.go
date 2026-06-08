@@ -2,11 +2,13 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/TheDurtch/anime-request-server/internal/models"
@@ -40,8 +42,10 @@ func (r *RequestRepo) Create(ctx context.Context, name string, category models.C
 	`, id, name, string(category), requestedBy)
 	if err != nil {
 		// Unique index on LOWER(name) (migration 007) — surfaces a race that
-		// slipped past the app-level duplicate check.
-		if strings.Contains(err.Error(), "duplicate key") {
+		// slipped past the app-level duplicate check. Match the specific
+		// unique-violation (23505) on that index rather than the error string.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_anime_requests_name_lower" {
 			return nil, fmt.Errorf("a request with this name already exists")
 		}
 		return nil, fmt.Errorf("creating request: %w", err)
@@ -65,21 +69,28 @@ func (r *RequestRepo) CreateBatch(ctx context.Context, names []string, requested
 	}
 
 	br := tx.SendBatch(ctx, batch)
-	defer br.Close()
 
 	count := 0
+	var execErr error
 	for range names {
 		tag, err := br.Exec()
 		if err != nil {
-			return count, fmt.Errorf("batch insert: %w", err)
+			execErr = fmt.Errorf("batch insert: %w", err)
+			break
 		}
 		// RowsAffected is 0 for a skipped conflict, 1 for an actual insert.
 		count += int(tag.RowsAffected())
 	}
-	// Close the batch results before committing the transaction.
-	if err := br.Close(); err != nil {
-		return count, fmt.Errorf("closing batch: %w", err)
+
+	// Close the batch exactly once, before committing — the batch holds the
+	// connection until closed. The deferred tx.Rollback covers the error paths.
+	if cerr := br.Close(); cerr != nil && execErr == nil {
+		execErr = fmt.Errorf("closing batch: %w", cerr)
 	}
+	if execErr != nil {
+		return count, execErr
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return count, fmt.Errorf("commit batch insert: %w", err)
 	}

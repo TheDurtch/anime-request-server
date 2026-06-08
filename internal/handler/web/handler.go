@@ -562,8 +562,10 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 		anidbPtr = &anidbURL
 	}
-	// An empty value leaves the existing URL unchanged (anidbPtr stays nil); we
-	// neither clear it nor write a "none" sentinel.
+	// An empty value intentionally leaves the existing URL unchanged (anidbPtr
+	// stays nil) rather than clearing it. By design: every anime has an AniDB
+	// entry, so a wrong URL is corrected by entering the right one and never
+	// needs to be cleared. (This also replaces the old "none" sentinel.)
 
 	// Update basic fields (status, category, anidb_url)
 	if err := h.requests.Update(r.Context(), id, status, category, anidbPtr); err != nil {
