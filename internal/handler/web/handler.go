@@ -133,6 +133,7 @@ func (h *Handler) Routes(sessionRepo *repository.SessionRepo) chi.Router {
 			r.Post("/manage/users/{id}", h.userEditSubmit)
 			r.Get("/manage/invites", h.invitesPage)
 			r.Post("/manage/invites/generate", h.inviteGenerate)
+			r.Post("/manage/invites/{id}/delete", h.inviteDelete)
 		})
 
 		// Admin/mod routes
