@@ -6,8 +6,9 @@ import (
 	"fmt"
 
 	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
+        _ "github.com/golang-migrate/migrate/v4/database/postgres"
+        "github.com/golang-migrate/migrate/v4/source/iofs"
+
 )
 
 //go:embed migrations/*.sql
