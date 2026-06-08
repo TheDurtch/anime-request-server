@@ -51,7 +51,7 @@ const (
 
 // Status represents the current state of a request.
 type Status string
-IS
+
 const (
 	StatusNew        Status = "new"
 	StatusDone       Status = "done"
