@@ -42,9 +42,11 @@
                     </td>
                     <td>{{if .ExpiresAt}}{{(derefTime .ExpiresAt).Format "2006-01-02 15:04"}}{{else}}Never{{end}}</td>
                     <td style="color:var(--text-muted); font-size:0.85rem;">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+                    <td>
                     <form method="POST" action="/manage/invites/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Delete this invite code? This cannot be undone.');">
                         <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                     </form>
+                    </td>
                 </tr>
                 {{end}}
             </tbody>
