@@ -14,9 +14,9 @@
             <div class="form-group">
                 <label for="role">Role</label>
                 <select id="role" name="role" class="form-control">
-                    <option value="admin" {{if eq .EditUser.Role "admin"}}selected{{end}}>Admin</option>
-                    <option value="mod" {{if eq .EditUser.Role "mod"}}selected{{end}}>Mod</option>
-                    <option value="user" {{if eq .EditUser.Role "user"}}selected{{end}}>User</option>
+                    <option value="admin" {{if .EditUser.IsAdmin}}selected{{end}}>Admin</option>
+                    <option value="mod" {{if .EditUser.IsMod}}selected{{end}}>Mod</option>
+                    <option value="user" {{if .EditUser.IsUser}}selected{{end}}>User</option>
                 </select>
             </div>
             <div class="form-group">
