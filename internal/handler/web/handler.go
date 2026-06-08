@@ -148,6 +148,19 @@ func (h *Handler) Routes(sessionRepo *repository.SessionRepo) chi.Router {
 	return r
 }
 
+func (h *Handler) inviteDelete(w http.ResponseWriter, r *http.Request) {
+    id, err := uuid.Parse(chi.URLParam(r, "id"))
+    if err != nil {
+        http.Error(w, "invalid ID", http.StatusBadRequest)
+        return
+    }
+    if err := h.invites.Delete(r.Context(), id); err != nil {
+        http.Error(w, "failed to delete invite code", http.StatusInternalServerError)
+        return
+    }
+    http.Redirect(w, r, "/manage/invites", http.StatusSeeOther)
+}
+
 func (h *Handler) render(w http.ResponseWriter, name string, data map[string]any) {
 	// Parse base + specific template
 	err := h.templates.ExecuteTemplate(w, "base", data)
