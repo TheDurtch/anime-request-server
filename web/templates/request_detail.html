@@ -29,7 +29,7 @@
         </table>
     </div>
 
-    {{if or (eq .User.Role "admin") (eq .User.Role "mod")}}
+    {{if .User.IsModOrAdmin}}
     <div class="card">
         <h2 style="margin-bottom:1rem; font-size:1.1rem;">Update Request</h2>
         <form method="POST" action="/requests/{{.Request.ID}}/edit">
