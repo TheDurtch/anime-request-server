@@ -38,10 +38,12 @@ export SESSION_SECRET="your-random-secret-at-least-32-chars"
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | Yes | — | PostgreSQL connection string |
-| `SESSION_SECRET` | Yes | — | Secret for session token hashing |
+| `SESSION_SECRET` | No | — | Currently unused; reserved for future cookie signing |
 | `SERVER_HOST` | No | `0.0.0.0` | Bind address |
 | `SERVER_PORT` | No | `8080` | HTTP port |
 | `WEBUI_ENABLED` | No | `true` | Set to `false` for API-only mode |
+| `REAL_IP_HEADER` | No | — | Proxy header trusted for the client IP in login rate limiting. Empty = trust none (use TCP peer). E.g. `CF-Connecting-IP`, `X-Forwarded-For` |
+| `COOKIE_SECURE` | No | `true` | `Secure` flag on session cookies; set `false` only for local HTTP dev |
 
 ## CLI commands
 

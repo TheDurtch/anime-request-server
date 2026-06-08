@@ -1,8 +1,9 @@
 package api
 
 import (
-	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -98,6 +99,10 @@ func (h *RequestHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	request, err := h.requests.Create(r.Context(), req.Name, models.Category(req.Category), user.ID)
 	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			Error(w, http.StatusConflict, "a request with this name already exists")
+			return
+		}
 		Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -165,27 +170,16 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 		category = &c
 	}
 
-	// Handle AniDB URL - prevent clearing once set
+	// Handle AniDB URL. A non-empty value must be a valid http(s) URL. An empty
+	// string leaves the existing value unchanged (we neither clear it nor write
+	// a "none" sentinel); to update it, send a real URL.
 	var anidbURL *string
-	if req.AnidbURL != nil {
-		// Check if request exists and has AniDB URL already set
-		existing, err := h.requests.GetByID(r.Context(), id)
-		if err != nil {
-			Error(w, http.StatusInternalServerError, "internal error")
+	if req.AnidbURL != nil && *req.AnidbURL != "" {
+		if !isValidHTTPURL(*req.AnidbURL) {
+			Error(w, http.StatusBadRequest, "anidb_url must be a valid http(s) URL")
 			return
 		}
-		if existing == nil {
-			Error(w, http.StatusNotFound, "request not found")
-			return
-		}
-
-		// If trying to clear an existing AniDB URL, set it to "none" instead
-		if existing.AnidbURL != nil && *req.AnidbURL == "" {
-			none := "none"
-			anidbURL = &none
-		} else {
-			anidbURL = req.AnidbURL
-		}
+		anidbURL = req.AnidbURL
 	}
 
 	if err := h.requests.Update(r.Context(), id, status, category, anidbURL); err != nil {
@@ -194,8 +188,12 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updated, err := h.requests.GetByID(r.Context(), id)
-	if err != nil || updated == nil {
+	if err != nil {
 		Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if updated == nil {
+		Error(w, http.StatusNotFound, "request not found")
 		return
 	}
 
@@ -250,31 +248,28 @@ func (h *RequestHandler) BatchCreate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// intQuery parses an integer query parameter with a default value.
+// intQuery parses a positive integer query parameter, returning defaultVal when
+// the parameter is absent, non-numeric, out of range, or less than 1.
 func intQuery(r *http.Request, key string, defaultVal int) int {
 	v := r.URL.Query().Get(key)
 	if v == "" {
 		return defaultVal
 	}
-	i, err := parsePositiveInt(v)
-	if err != nil {
+	// strconv.Atoi reports ErrRange on overflow, so this is overflow-safe.
+	i, err := strconv.Atoi(v)
+	if err != nil || i < 1 {
 		return defaultVal
 	}
 	return i
 }
 
-func parsePositiveInt(s string) (int, error) {
-	if s == "" {
-		return 0, fmt.Errorf("empty string")
+// isValidHTTPURL reports whether s is a well-formed absolute http(s) URL.
+func isValidHTTPURL(s string) bool {
+	u, err := url.ParseRequestURI(s)
+	if err != nil {
+		return false
 	}
-	var i int
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return 0, fmt.Errorf("invalid integer: %s", s)
-		}
-		i = i*10 + int(c-'0')
-	}
-	return i, nil
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 // AddDestination handles POST /api/v1/requests/{id}/destinations
@@ -321,14 +316,32 @@ func (h *RequestHandler) RemoveDestination(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Check if this is the last destination
-	count, err := h.requests.GetDestinationCount(r.Context(), id)
+	request, err := h.requests.GetByID(r.Context(), id)
 	if err != nil {
 		Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	if request == nil {
+		Error(w, http.StatusNotFound, "request not found")
+		return
+	}
 
-	if count <= 1 {
+	// Verify the destination is actually assigned to this request.
+	isMember := false
+	for _, d := range request.ServerDestinations {
+		if d.ID == destID {
+			isMember = true
+			break
+		}
+	}
+	if !isMember {
+		Error(w, http.StatusNotFound, "destination is not assigned to this request")
+		return
+	}
+
+	// Preserve the "keep at least one destination" rule, but only when this is
+	// genuinely the last assigned destination.
+	if len(request.ServerDestinations) <= 1 {
 		Error(w, http.StatusBadRequest, "cannot remove last destination")
 		return
 	}

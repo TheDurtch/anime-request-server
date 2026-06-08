@@ -18,6 +18,9 @@ type LoginLimiter struct {
 	window time.Duration
 	// Ban duration
 	banDuration time.Duration
+	// trustedHeader is the proxy-set header trusted for the client IP (see
+	// config.RealIPHeader). Empty means trust no forwarding headers.
+	trustedHeader string
 }
 
 type ipAttempts struct {
@@ -32,16 +35,25 @@ type ipAttempts struct {
 // maxAttempts: number of failed attempts before ban (e.g., 5)
 // window: time window for counting attempts (e.g., 5 minutes)
 // banDuration: how long to ban the IP (e.g., 15 minutes)
-func NewLoginLimiter(maxAttempts int, window, banDuration time.Duration) *LoginLimiter {
+// trustedHeader: proxy-set header to trust for the client IP (may be empty)
+func NewLoginLimiter(maxAttempts int, window, banDuration time.Duration, trustedHeader string) *LoginLimiter {
 	limiter := &LoginLimiter{
-		attempts:    make(map[string]*ipAttempts),
-		maxAttempts: maxAttempts,
-		window:      window,
-		banDuration: banDuration,
+		attempts:      make(map[string]*ipAttempts),
+		maxAttempts:   maxAttempts,
+		window:        window,
+		banDuration:   banDuration,
+		trustedHeader: trustedHeader,
 	}
 	// Start cleanup goroutine
 	go limiter.cleanup()
 	return limiter
+}
+
+// ClientIP returns the client IP for r using the limiter's trusted-header
+// configuration. Use this everywhere the limiter is keyed so the rate limiter,
+// ban store, and any httprate middleware all agree on the same identity.
+func (l *LoginLimiter) ClientIP(r *http.Request) string {
+	return GetClientIP(r, l.trustedHeader)
 }
 
 // RecordFailedAttempt records a failed login attempt for the given IP.
@@ -155,24 +167,26 @@ func (l *LoginLimiter) cleanup() {
 }
 
 // GetClientIP extracts the client IP from the request.
-// Checks X-Forwarded-For and X-Real-IP headers, falls back to RemoteAddr.
-// Uses net.SplitHostPort for proper IPv6 support.
-func GetClientIP(r *http.Request) string {
-	// Check X-Forwarded-For (most common with reverse proxies)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP in the comma-separated list (closest to client)
-		first, _, _ := strings.Cut(xff, ",")
-		if ip := strings.TrimSpace(first); ip != "" {
-			return ip
+//
+// Forwarding headers (X-Forwarded-For, X-Real-IP, CF-Connecting-IP, ...) are
+// client-spoofable unless a trusted reverse proxy overwrites them, so only the
+// single header named by trustedHeader is consulted. Set trustedHeader to the
+// header your proxy populates ("CF-Connecting-IP" behind Cloudflare,
+// "X-Forwarded-For" behind Caddy/Pangolin/nginx). When trustedHeader is empty
+// — or the header is absent — the TCP peer address (RemoteAddr) is used and no
+// client-supplied header is trusted. net.SplitHostPort handles IPv6 properly.
+func GetClientIP(r *http.Request, trustedHeader string) string {
+	if trustedHeader != "" {
+		if v := r.Header.Get(trustedHeader); v != "" {
+			// Some proxy headers (e.g. X-Forwarded-For) carry a
+			// comma-separated list; the first entry is the originating client.
+			first, _, _ := strings.Cut(v, ",")
+			if ip := strings.TrimSpace(first); ip != "" {
+				return ip
+			}
 		}
 	}
 
-	// Check X-Real-IP
-	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
-		return xri
-	}
-
-	// Fallback to RemoteAddr — use net.SplitHostPort for proper IPv6 handling
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil {
 		return host

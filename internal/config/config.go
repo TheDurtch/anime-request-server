@@ -13,6 +13,15 @@ type Config struct {
 	ServerPort    int
 	SessionSecret string
 	WebUIEnabled  bool
+	// RealIPHeader is the request header trusted to carry the originating
+	// client IP, set by the reverse proxy in front of this server (e.g.
+	// "CF-Connecting-IP" behind Cloudflare, "X-Forwarded-For" behind
+	// Caddy/Pangolin/nginx). When empty, no forwarding headers are trusted
+	// and the TCP peer address is used instead.
+	RealIPHeader string
+	// CookieSecure controls the Secure flag on session cookies. Defaults to
+	// true; set COOKIE_SECURE=false for local development over plain HTTP.
+	CookieSecure bool
 }
 
 // Load reads configuration from environment variables.
@@ -36,10 +45,10 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// SESSION_SECRET is currently unused (sessions are random tokens stored as
+	// SHA-256 hashes, not signed cookies). It is read but optional, reserved
+	// for future cookie signing.
 	secret := os.Getenv("SESSION_SECRET")
-	if secret == "" {
-		return nil, fmt.Errorf("SESSION_SECRET is required")
-	}
 
 	webUI := true
 	if v := os.Getenv("WEBUI_ENABLED"); v != "" {
@@ -50,12 +59,23 @@ func Load() (*Config, error) {
 		}
 	}
 
+	cookieSecure := true
+	if v := os.Getenv("COOKIE_SECURE"); v != "" {
+		var err error
+		cookieSecure, err = strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid COOKIE_SECURE: %w", err)
+		}
+	}
+
 	return &Config{
 		DatabaseURL:   dbURL,
 		ServerHost:    host,
 		ServerPort:    port,
 		SessionSecret: secret,
 		WebUIEnabled:  webUI,
+		RealIPHeader:  os.Getenv("REAL_IP_HEADER"),
+		CookieSecure:  cookieSecure,
 	}, nil
 }
 
