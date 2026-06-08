@@ -40,6 +40,14 @@ func (u *User) IsModOrAdmin() bool {
     return u.Role == RoleAdmin || u.Role == RoleMod
 }
 
+func (u *User) IsMod() bool {
+    return u.Role == RoleMod
+}
+
+func (u *User) IsUser() bool {
+    return u.Role == RoleUser
+}
+
 // Category represents the anime request category.
 type Category string
 
