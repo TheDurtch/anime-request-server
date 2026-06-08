@@ -30,6 +30,16 @@ type User struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// IsAdmin returns true if the user is an admin.
+func (u *User) IsAdmin() bool {
+    return u.Role == RoleAdmin
+}
+
+// IsModOrAdmin returns true if the user is a mod or admin.
+func (u *User) IsModOrAdmin() bool {
+    return u.Role == RoleAdmin || u.Role == RoleMod
+}
+
 // Category represents the anime request category.
 type Category string
 
@@ -41,7 +51,7 @@ const (
 
 // Status represents the current state of a request.
 type Status string
-
+IS
 const (
 	StatusNew        Status = "new"
 	StatusDone       Status = "done"
