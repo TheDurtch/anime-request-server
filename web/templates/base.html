@@ -13,10 +13,10 @@
             <a href="/" class="navbar-brand">Anime Requests</a>
             <ul class="navbar-nav">
                 <li><a href="/">Requests</a></li>
-                {{if or (eq .User.Role "admin") (eq .User.Role "mod")}}
+                {{if .User.IsModOrAdmin}}
                 <li><a href="/manage/server-destinations">Servers</a></li>
                 {{end}}
-                {{if eq .User.Role "admin"}}
+                {{if .User.IsAdmin}}
                 <li><a href="/manage/users">Users</a></li>
                 <li><a href="/manage/invites">Invites</a></li>
                 {{end}}
