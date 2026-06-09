@@ -33,17 +33,37 @@ type RequestFilter struct {
 	PerPage     int
 }
 
+// mapRequestConstraintErr maps known unique/check violations on anime_requests
+// to user-facing errors, or returns nil if err is not one of them. It is the
+// backstop for races that slip past the app-level NameInUse check (migrations
+// 007/008): the LOWER(name) and LOWER(alt_name) unique indexes and the
+// chk_alt_name_differs check.
+func mapRequestConstraintErr(err error) error {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return nil
+	}
+	switch {
+	case pgErr.Code == "23505" && (pgErr.ConstraintName == "idx_anime_requests_name_lower" ||
+		pgErr.ConstraintName == "idx_anime_requests_alt_name_lower"):
+		return fmt.Errorf("a request with this name already exists")
+	case pgErr.Code == "23514" && pgErr.ConstraintName == "chk_alt_name_differs":
+		return fmt.Errorf("alternate name must differ from the name")
+	}
+	return nil
+}
+
 // Create inserts a new anime request with default status and no destinations.
 func (r *RequestRepo) Create(ctx context.Context, name string, category models.Category, requestedBy uuid.UUID) (*models.AnimeRequest, error) {
-	return r.CreateWithDetails(ctx, name, category, requestedBy, nil, nil, nil)
+	return r.CreateWithDetails(ctx, name, category, requestedBy, nil, nil, nil, nil)
 }
 
 // CreateWithDetails inserts a new anime request and, in a single transaction,
-// applies the optional mod/admin fields: a non-nil status overrides the DB
-// default ('new'), a non-nil anidbURL is stored, and each ID in destIDs is
-// linked as a server destination. Callers must validate status/anidbURL before
-// passing them; values are bound, not interpolated.
-func (r *RequestRepo) CreateWithDetails(ctx context.Context, name string, category models.Category, requestedBy uuid.UUID, status *models.Status, anidbURL *string, destIDs []uuid.UUID) (*models.AnimeRequest, error) {
+// applies the optional mod/admin fields: a non-nil altName sets the alternate
+// name, a non-nil status overrides the DB default ('new'), a non-nil anidbURL is
+// stored, and each ID in destIDs is linked as a server destination. Callers must
+// validate these before passing them; values are bound, not interpolated.
+func (r *RequestRepo) CreateWithDetails(ctx context.Context, name string, category models.Category, requestedBy uuid.UUID, altName *string, status *models.Status, anidbURL *string, destIDs []uuid.UUID) (*models.AnimeRequest, error) {
 	id := uuid.New()
 
 	tx, err := r.pool.Begin(ctx)
@@ -52,12 +72,18 @@ func (r *RequestRepo) CreateWithDetails(ctx context.Context, name string, catego
 	}
 	defer tx.Rollback(ctx)
 
-	// Build the insert with only the columns we're setting; status/anidb_url
-	// fall back to their schema defaults when omitted.
+	// Build the insert with only the columns we're setting; alt_name/status/
+	// anidb_url fall back to their schema defaults (NULL/'new') when omitted.
 	cols := []string{"id", "name", "category", "requested_by"}
 	placeholders := []string{"$1", "$2", "$3", "$4"}
 	args := []any{id, name, string(category), requestedBy}
 	next := 5
+	if altName != nil {
+		cols = append(cols, "alt_name")
+		placeholders = append(placeholders, fmt.Sprintf("$%d", next))
+		args = append(args, *altName)
+		next++
+	}
 	if status != nil {
 		cols = append(cols, "status")
 		placeholders = append(placeholders, fmt.Sprintf("$%d", next))
@@ -74,12 +100,8 @@ func (r *RequestRepo) CreateWithDetails(ctx context.Context, name string, catego
 	query := fmt.Sprintf("INSERT INTO anime_requests (%s) VALUES (%s)",
 		strings.Join(cols, ", "), strings.Join(placeholders, ", "))
 	if _, err := tx.Exec(ctx, query, args...); err != nil {
-		// Unique index on LOWER(name) (migration 007) — surfaces a race that
-		// slipped past the app-level duplicate check. Match the specific
-		// unique-violation (23505) on that index rather than the error string.
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_anime_requests_name_lower" {
-			return nil, fmt.Errorf("a request with this name already exists")
+		if mapped := mapRequestConstraintErr(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -117,10 +139,52 @@ func (r *RequestRepo) CreateBatch(ctx context.Context, names []string, requested
 	}
 	defer tx.Rollback(ctx)
 
+	// Pre-filter names that collide (case-insensitively) with an existing
+	// request's name OR alt_name. The ON CONFLICT below still backstops
+	// name<->name races and intra-batch duplicates; this adds the alt_name
+	// cross-column case the LOWER(name) index can't catch.
+	lowered := make([]string, len(names))
+	for i, n := range names {
+		lowered[i] = strings.ToLower(n)
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT LOWER(name) FROM anime_requests WHERE LOWER(name) = ANY($1)
+		UNION
+		SELECT LOWER(alt_name) FROM anime_requests WHERE alt_name IS NOT NULL AND LOWER(alt_name) = ANY($1)
+	`, lowered)
+	if err != nil {
+		return 0, fmt.Errorf("checking batch duplicates: %w", err)
+	}
+	taken := make(map[string]bool)
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scanning batch duplicates: %w", err)
+		}
+		taken[s] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("scanning batch duplicates: %w", err)
+	}
+
+	toInsert := make([]string, 0, len(names))
+	for _, n := range names {
+		if !taken[strings.ToLower(n)] {
+			toInsert = append(toInsert, n)
+		}
+	}
+	if len(toInsert) == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			return 0, fmt.Errorf("commit batch insert: %w", err)
+		}
+		return 0, nil
+	}
+
 	batch := &pgx.Batch{}
-	for _, name := range names {
-		// Skip names that collide (case-insensitively) with an existing row or
-		// an earlier item in this batch, rather than failing the whole batch.
+	for _, name := range toInsert {
+		// ON CONFLICT skips name<->name races and intra-batch duplicates.
 		batch.Queue(`INSERT INTO anime_requests (id, name, category, requested_by) VALUES ($1, $2, 'batch_add', $3) ON CONFLICT (LOWER(name)) DO NOTHING`, uuid.New(), name, requestedBy)
 	}
 
@@ -128,7 +192,7 @@ func (r *RequestRepo) CreateBatch(ctx context.Context, names []string, requested
 
 	count := 0
 	var execErr error
-	for range names {
+	for range toInsert {
 		tag, err := br.Exec()
 		if err != nil {
 			execErr = fmt.Errorf("batch insert: %w", err)
@@ -157,12 +221,12 @@ func (r *RequestRepo) CreateBatch(ctx context.Context, names []string, requested
 func (r *RequestRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.AnimeRequest, error) {
 	req := &models.AnimeRequest{}
 	err := r.pool.QueryRow(ctx, `
-		SELECT ar.id, ar.name, ar.category, ar.status, ar.requested_by, u.username,
+		SELECT ar.id, ar.name, ar.alt_name, ar.category, ar.status, ar.requested_by, u.username,
 		       ar.anidb_url, ar.created_at, ar.updated_at
 		FROM anime_requests ar
 		JOIN users u ON u.id = ar.requested_by
 		WHERE ar.id = $1
-	`, id).Scan(&req.ID, &req.Name, &req.Category, &req.Status, &req.RequestedBy,
+	`, id).Scan(&req.ID, &req.Name, &req.AltName, &req.Category, &req.Status, &req.RequestedBy,
 		&req.RequestedByUsername, &req.AnidbURL, &req.CreatedAt, &req.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -287,7 +351,7 @@ func (r *RequestRepo) List(ctx context.Context, filter RequestFilter) ([]models.
 	offset := (filter.Page - 1) * filter.PerPage
 	args = append(args, filter.PerPage, offset)
 	query := fmt.Sprintf(`
-		SELECT ar.id, ar.name, ar.category, ar.status, ar.requested_by, u.username,
+		SELECT ar.id, ar.name, ar.alt_name, ar.category, ar.status, ar.requested_by, u.username,
 		       ar.anidb_url, ar.created_at, ar.updated_at
 		FROM anime_requests ar
 		JOIN users u ON u.id = ar.requested_by
@@ -305,7 +369,7 @@ func (r *RequestRepo) List(ctx context.Context, filter RequestFilter) ([]models.
 	var requests []models.AnimeRequest
 	for rows.Next() {
 		var req models.AnimeRequest
-		if err := rows.Scan(&req.ID, &req.Name, &req.Category, &req.Status, &req.RequestedBy,
+		if err := rows.Scan(&req.ID, &req.Name, &req.AltName, &req.Category, &req.Status, &req.RequestedBy,
 			&req.RequestedByUsername,
 			&req.AnidbURL, &req.CreatedAt, &req.UpdatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scanning request: %w", err)
@@ -322,10 +386,11 @@ func (r *RequestRepo) List(ctx context.Context, filter RequestFilter) ([]models.
 }
 
 // Update modifies a request (admin/mod only fields). A non-nil name renames the
-// entry; renaming to a name another request already uses (case-insensitively)
-// returns an "already exists" error via the LOWER(name) unique index.
+// entry and a non-nil altName sets the alternate name; either colliding
+// (case-insensitively) with another request's name or alt name returns an
+// "already exists" error via the unique indexes.
 // Note: serverDestIDs are now managed via AddDestination/RemoveDestination methods.
-func (r *RequestRepo) Update(ctx context.Context, id uuid.UUID, name *string, status *models.Status, category *models.Category, anidbURL *string) error {
+func (r *RequestRepo) Update(ctx context.Context, id uuid.UUID, name *string, altName *string, status *models.Status, category *models.Category, anidbURL *string) error {
 	sets := []string{"updated_at = NOW()"}
 	args := []any{}
 	argIdx := 1
@@ -333,6 +398,17 @@ func (r *RequestRepo) Update(ctx context.Context, id uuid.UUID, name *string, st
 	if name != nil {
 		sets = append(sets, fmt.Sprintf("name = $%d", argIdx))
 		args = append(args, *name)
+		argIdx++
+	}
+	if altName != nil {
+		// A non-nil empty string clears the alt name (stores NULL); the partial
+		// unique index ignores NULLs, so multiple requests can have no alt name.
+		sets = append(sets, fmt.Sprintf("alt_name = $%d", argIdx))
+		if *altName == "" {
+			args = append(args, nil)
+		} else {
+			args = append(args, *altName)
+		}
 		argIdx++
 	}
 	if status != nil {
@@ -356,10 +432,8 @@ func (r *RequestRepo) Update(ctx context.Context, id uuid.UUID, name *string, st
 	query := fmt.Sprintf("UPDATE anime_requests SET %s WHERE id = $%d", strings.Join(sets, ", "), argIdx)
 	_, err := r.pool.Exec(ctx, query, args...)
 	if err != nil {
-		// A rename can collide with the LOWER(name) unique index (migration 007).
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_anime_requests_name_lower" {
-			return fmt.Errorf("a request with this name already exists")
+		if mapped := mapRequestConstraintErr(err); mapped != nil {
+			return mapped
 		}
 		return err
 	}
@@ -405,12 +479,31 @@ func (r *RequestRepo) GetDestinationCount(ctx context.Context, requestID uuid.UU
 	return count, err
 }
 
-// CheckDuplicate checks if a request with the same name already exists (case-insensitive).
-func (r *RequestRepo) CheckDuplicate(ctx context.Context, name string) (bool, error) {
+// NameInUse reports whether any candidate collides (case-insensitively) with the
+// name OR alt_name of an existing request, excluding the request with excludeID
+// (pass uuid.Nil to exclude none — e.g. on create). This is the app-level
+// duplicate check; the unique indexes (migrations 007/008) are the race backstop.
+// Empty candidates are ignored.
+func (r *RequestRepo) NameInUse(ctx context.Context, excludeID uuid.UUID, candidates ...string) (bool, error) {
+	lowered := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		c = strings.TrimSpace(c)
+		if c != "" {
+			lowered = append(lowered, strings.ToLower(c))
+		}
+	}
+	if len(lowered) == 0 {
+		return false, nil
+	}
+
 	var exists bool
 	err := r.pool.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM anime_requests WHERE LOWER(name) = LOWER($1))
-	`, name).Scan(&exists)
+		SELECT EXISTS (
+			SELECT 1 FROM anime_requests
+			WHERE id <> $1
+			  AND (LOWER(name) = ANY($2) OR (alt_name IS NOT NULL AND LOWER(alt_name) = ANY($2)))
+		)
+	`, excludeID, lowered).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("checking duplicate: %w", err)
 	}

@@ -32,20 +32,20 @@ type User struct {
 
 // IsAdmin returns true if the user is an admin.
 func (u *User) IsAdmin() bool {
-    return u.Role == RoleAdmin
+	return u.Role == RoleAdmin
 }
 
 // IsModOrAdmin returns true if the user is a mod or admin.
 func (u *User) IsModOrAdmin() bool {
-    return u.Role == RoleAdmin || u.Role == RoleMod
+	return u.Role == RoleAdmin || u.Role == RoleMod
 }
 
 func (u *User) IsMod() bool {
-    return u.Role == RoleMod
+	return u.Role == RoleMod
 }
 
 func (u *User) IsUser() bool {
-    return u.Role == RoleUser
+	return u.Role == RoleUser
 }
 
 // Category represents the anime request category.
@@ -71,16 +71,17 @@ const (
 
 // AnimeRequest represents a single anime request entry.
 type AnimeRequest struct {
-	ID                      uuid.UUID  `json:"id"`
-	Name                    string     `json:"name"`
-	Category                Category   `json:"category"`
-	Status                  Status     `json:"status"`
-	RequestedBy             uuid.UUID  `json:"requested_by"`
-	RequestedByUsername     string     `json:"requested_by_username,omitempty"`
-	ServerDestinations      []ServerDestinationMapping `json:"server_destinations,omitempty"`
-	AnidbURL                *string    `json:"anidb_url,omitempty"`
-	CreatedAt               time.Time  `json:"created_at"`
-	UpdatedAt               time.Time  `json:"updated_at"`
+	ID                  uuid.UUID                  `json:"id"`
+	Name                string                     `json:"name"`
+	AltName             *string                    `json:"alt_name,omitempty"`
+	Category            Category                   `json:"category"`
+	Status              Status                     `json:"status"`
+	RequestedBy         uuid.UUID                  `json:"requested_by"`
+	RequestedByUsername string                     `json:"requested_by_username,omitempty"`
+	ServerDestinations  []ServerDestinationMapping `json:"server_destinations,omitempty"`
+	AnidbURL            *string                    `json:"anidb_url,omitempty"`
+	CreatedAt           time.Time                  `json:"created_at"`
+	UpdatedAt           time.Time                  `json:"updated_at"`
 }
 
 // ServerDestinationMapping represents a server destination assigned to a request.

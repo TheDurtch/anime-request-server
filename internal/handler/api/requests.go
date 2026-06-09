@@ -70,6 +70,7 @@ func (h *RequestHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Category string `json:"category"`
 		// Mod/admin-only optional fields, applied only when the caller is a
 		// mod or admin; ignored for regular users.
+		AltName              *string  `json:"alt_name"`
 		Status               *string  `json:"status"`
 		AnidbURL             *string  `json:"anidb_url"`
 		ServerDestinationIDs []string `json:"server_destination_ids"`
@@ -91,10 +92,20 @@ func (h *RequestHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var altName *string
 	var status *models.Status
 	var anidbURL *string
 	var destIDs []uuid.UUID
 	if user.IsModOrAdmin() {
+		if req.AltName != nil {
+			if trimmed := strings.TrimSpace(*req.AltName); trimmed != "" {
+				if strings.EqualFold(trimmed, req.Name) {
+					Error(w, http.StatusBadRequest, "alternate name must differ from the name")
+					return
+				}
+				altName = &trimmed
+			}
+		}
 		if req.Status != nil {
 			if !models.IsValidStatus(*req.Status) {
 				Error(w, http.StatusBadRequest, "invalid status")
@@ -120,8 +131,12 @@ func (h *RequestHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check for duplicates
-	dup, err := h.requests.CheckDuplicate(r.Context(), req.Name)
+	// Check for duplicates against both the name and the alt name.
+	candidates := []string{req.Name}
+	if altName != nil {
+		candidates = append(candidates, *altName)
+	}
+	dup, err := h.requests.NameInUse(r.Context(), uuid.Nil, candidates...)
 	if err != nil {
 		Error(w, http.StatusInternalServerError, "internal error")
 		return
@@ -131,10 +146,14 @@ func (h *RequestHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	request, err := h.requests.CreateWithDetails(r.Context(), req.Name, models.Category(req.Category), user.ID, status, anidbURL, destIDs)
+	request, err := h.requests.CreateWithDetails(r.Context(), req.Name, models.Category(req.Category), user.ID, altName, status, anidbURL, destIDs)
 	if err != nil {
 		if strings.Contains(err.Error(), "already exists") {
 			Error(w, http.StatusConflict, "a request with this name already exists")
+			return
+		}
+		if strings.Contains(err.Error(), "must differ") {
+			Error(w, http.StatusBadRequest, "alternate name must differ from the name")
 			return
 		}
 		if strings.Contains(err.Error(), "destination does not exist") {
@@ -179,6 +198,7 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Name     *string `json:"name"`
+		AltName  *string `json:"alt_name"`
 		Status   *string `json:"status"`
 		Category *string `json:"category"`
 		// Note: Destinations are managed via /requests/{id}/destinations endpoints
@@ -197,6 +217,18 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		name = &trimmed
+	}
+
+	// alt_name: omitted = leave unchanged; "" = clear; otherwise set. The
+	// repository treats a non-nil empty string as a clear (NULL).
+	var altName *string
+	if req.AltName != nil {
+		trimmed := strings.TrimSpace(*req.AltName)
+		if trimmed != "" && name != nil && strings.EqualFold(trimmed, *name) {
+			Error(w, http.StatusBadRequest, "alternate name must differ from the name")
+			return
+		}
+		altName = &trimmed
 	}
 
 	var status *models.Status
@@ -234,9 +266,34 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 		anidbURL = req.AnidbURL
 	}
 
-	if err := h.requests.Update(r.Context(), id, name, status, category, anidbURL); err != nil {
+	// Catch cross-column collisions (new name/alt vs another request's name or
+	// alt) the unique indexes can't, excluding this request itself.
+	var candidates []string
+	if name != nil {
+		candidates = append(candidates, *name)
+	}
+	if altName != nil && *altName != "" {
+		candidates = append(candidates, *altName)
+	}
+	if len(candidates) > 0 {
+		dup, err := h.requests.NameInUse(r.Context(), id, candidates...)
+		if err != nil {
+			Error(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if dup {
+			Error(w, http.StatusConflict, "a request with this name already exists")
+			return
+		}
+	}
+
+	if err := h.requests.Update(r.Context(), id, name, altName, status, category, anidbURL); err != nil {
 		if strings.Contains(err.Error(), "already exists") {
 			Error(w, http.StatusConflict, "a request with this name already exists")
+			return
+		}
+		if strings.Contains(err.Error(), "must differ") {
+			Error(w, http.StatusBadRequest, "alternate name must differ from the name")
 			return
 		}
 		Error(w, http.StatusInternalServerError, "internal error")

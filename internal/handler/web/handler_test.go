@@ -71,7 +71,7 @@ func TestWeb_NewRequestPage_ModFields(t *testing.T) {
 		t.Fatalf("seed dest: %v", err)
 	}
 	modBody := get(t, srv, "/requests/new", mustSession(t, mod.ID))
-	for _, want := range []string{"Server Destinations", "AniDB URL", `name="status"`, "Plex"} {
+	for _, want := range []string{"Server Destinations", "AniDB URL", `name="status"`, `name="alt_name"`, "Plex"} {
 		if !strings.Contains(modBody, want) {
 			t.Errorf("mod new-request page missing %q", want)
 		}
@@ -80,7 +80,7 @@ func TestWeb_NewRequestPage_ModFields(t *testing.T) {
 	// A regular user sees none of the mod-only fields.
 	user := mustUser(t, "joe", models.RoleUser)
 	userBody := get(t, srv, "/requests/new", mustSession(t, user.ID))
-	for _, notWant := range []string{"Server Destinations", "AniDB URL", `name="status"`} {
+	for _, notWant := range []string{"Server Destinations", "AniDB URL", `name="status"`, `name="alt_name"`} {
 		if strings.Contains(userBody, notWant) {
 			t.Errorf("user new-request page unexpectedly contains %q", notWant)
 		}
@@ -111,7 +111,7 @@ func TestWeb_NewRequestSubmit_BadDestination(t *testing.T) {
 
 	// And no request was created.
 	requests := repository.NewRequestRepo(testDB.Pool)
-	if dup, err := requests.CheckDuplicate(context.Background(), "Ghosty"); err != nil {
+	if dup, err := requests.NameInUse(context.Background(), uuid.Nil, "Ghosty"); err != nil {
 		t.Fatalf("check duplicate: %v", err)
 	} else if dup {
 		t.Error("a request was created despite the invalid destination")

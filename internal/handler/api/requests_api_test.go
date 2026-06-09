@@ -185,6 +185,50 @@ func TestAPI_CreateRequest_ModFields(t *testing.T) {
 	}
 }
 
+func TestAPI_CreateRequest_AltName(t *testing.T) {
+	resetDB(t)
+	srv, _ := newTestServer(t)
+
+	mod := mustUser(t, "mod", models.RoleMod)
+	modTok := mustSession(t, mod.ID)
+
+	// A mod sets an alt name; it round-trips.
+	rec := do(t, srv, http.MethodPost, "/api/v1/requests/", modTok,
+		`{"name":"Kusuriya no Hitorigoto","category":"current_future","alt_name":"The Apothecary Diaries"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("mod create: status %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	var got models.AnimeRequest
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.AltName == nil || *got.AltName != "The Apothecary Diaries" {
+		t.Errorf("alt_name = %v, want the submitted alt", got.AltName)
+	}
+
+	// A new request whose name matches the existing alt is a 409.
+	rec = do(t, srv, http.MethodPost, "/api/v1/requests/", modTok,
+		`{"name":"the apothecary diaries","category":"current_future"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("name == existing alt: status %d, want 409", rec.Code)
+	}
+
+	// A regular user's alt_name is ignored.
+	user := mustUser(t, "joe", models.RoleUser)
+	rec = do(t, srv, http.MethodPost, "/api/v1/requests/", mustSession(t, user.ID),
+		`{"name":"Bocchi the Rock","category":"current_future","alt_name":"Bocchi"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("user create: status %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	var userGot models.AnimeRequest
+	if err := json.Unmarshal(rec.Body.Bytes(), &userGot); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if userGot.AltName != nil {
+		t.Errorf("user alt_name = %v, want nil (mod-only field ignored)", userGot.AltName)
+	}
+}
+
 func TestAPI_CreateRequest_BadDestination(t *testing.T) {
 	resetDB(t)
 	srv, _ := newTestServer(t)
