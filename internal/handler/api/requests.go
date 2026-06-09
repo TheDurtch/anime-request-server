@@ -140,6 +140,7 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
+		Name     *string `json:"name"`
 		Status   *string `json:"status"`
 		Category *string `json:"category"`
 		// Note: Destinations are managed via /requests/{id}/destinations endpoints
@@ -148,6 +149,16 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err := Decode(r, &req); err != nil {
 		Error(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+
+	var name *string
+	if req.Name != nil {
+		trimmed := strings.TrimSpace(*req.Name)
+		if trimmed == "" {
+			Error(w, http.StatusBadRequest, "name cannot be empty")
+			return
+		}
+		name = &trimmed
 	}
 
 	var status *models.Status
@@ -185,7 +196,11 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 		anidbURL = req.AnidbURL
 	}
 
-	if err := h.requests.Update(r.Context(), id, status, category, anidbURL); err != nil {
+	if err := h.requests.Update(r.Context(), id, name, status, category, anidbURL); err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			Error(w, http.StatusConflict, "a request with this name already exists")
+			return
+		}
 		Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -201,6 +216,27 @@ func (h *RequestHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, updated)
+}
+
+// Delete handles DELETE /api/v1/requests/{id}
+func (h *RequestHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		Error(w, http.StatusBadRequest, "invalid request ID")
+		return
+	}
+
+	deleted, err := h.requests.Delete(r.Context(), id)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if !deleted {
+		Error(w, http.StatusNotFound, "request not found")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 // BatchCreate handles POST /api/v1/requests/batch

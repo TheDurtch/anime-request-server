@@ -147,6 +147,7 @@ func (h *Handler) Routes(sessionRepo *repository.SessionRepo) chi.Router {
 		r.Post("/requests/batch", h.batchAddSubmit)
 		r.Get("/requests/{id}", h.requestDetail)
 		r.Post("/requests/{id}/edit", h.requestEditSubmit)
+		r.Post("/requests/{id}/delete", h.requestDelete)
 
 		// Admin routes
 		r.Group(func(r chi.Router) {
@@ -537,10 +538,16 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	name := strings.TrimSpace(r.FormValue("name"))
 	statusStr := r.FormValue("status")
 	categoryStr := r.FormValue("category")
 	selectedDestIDs := r.Form["server_destination_ids"] // Multiple checkboxes
 	anidbURL := r.FormValue("anidb_url")
+
+	if name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
 
 	var status *models.Status
 	if statusStr != "" && models.IsValidStatus(statusStr) {
@@ -567,8 +574,12 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 	// entry, so a wrong URL is corrected by entering the right one and never
 	// needs to be cleared. (This also replaces the old "none" sentinel.)
 
-	// Update basic fields (status, category, anidb_url)
-	if err := h.requests.Update(r.Context(), id, status, category, anidbPtr); err != nil {
+	// Update basic fields (name, status, category, anidb_url)
+	if err := h.requests.Update(r.Context(), id, &name, status, category, anidbPtr); err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			http.Error(w, "a request with this name already exists", http.StatusConflict)
+			return
+		}
 		http.Error(w, "failed to update request", http.StatusInternalServerError)
 		return
 	}
@@ -613,6 +624,32 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 	// (silently keep existing destinations)
 
 	http.Redirect(w, r, "/requests/"+id.String(), http.StatusSeeOther)
+}
+
+func (h *Handler) requestDelete(w http.ResponseWriter, r *http.Request) {
+	user := middleware.UserFromContext(r.Context())
+	if user.Role != models.RoleAdmin && user.Role != models.RoleMod {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	deleted, err := h.requests.Delete(r.Context(), id)
+	if err != nil {
+		http.Error(w, "failed to delete request", http.StatusInternalServerError)
+		return
+	}
+	if !deleted {
+		http.Error(w, "request not found", http.StatusNotFound)
+		return
+	}
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // --- Admin pages ---

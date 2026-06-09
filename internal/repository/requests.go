@@ -265,13 +265,20 @@ func (r *RequestRepo) List(ctx context.Context, filter RequestFilter) ([]models.
 	return requests, total, nil
 }
 
-// Update modifies a request (admin/mod only fields).
+// Update modifies a request (admin/mod only fields). A non-nil name renames the
+// entry; renaming to a name another request already uses (case-insensitively)
+// returns an "already exists" error via the LOWER(name) unique index.
 // Note: serverDestIDs are now managed via AddDestination/RemoveDestination methods.
-func (r *RequestRepo) Update(ctx context.Context, id uuid.UUID, status *models.Status, category *models.Category, anidbURL *string) error {
+func (r *RequestRepo) Update(ctx context.Context, id uuid.UUID, name *string, status *models.Status, category *models.Category, anidbURL *string) error {
 	sets := []string{"updated_at = NOW()"}
 	args := []any{}
 	argIdx := 1
 
+	if name != nil {
+		sets = append(sets, fmt.Sprintf("name = $%d", argIdx))
+		args = append(args, *name)
+		argIdx++
+	}
 	if status != nil {
 		sets = append(sets, fmt.Sprintf("status = $%d", argIdx))
 		args = append(args, string(*status))
@@ -292,7 +299,26 @@ func (r *RequestRepo) Update(ctx context.Context, id uuid.UUID, status *models.S
 	args = append(args, id)
 	query := fmt.Sprintf("UPDATE anime_requests SET %s WHERE id = $%d", strings.Join(sets, ", "), argIdx)
 	_, err := r.pool.Exec(ctx, query, args...)
-	return err
+	if err != nil {
+		// A rename can collide with the LOWER(name) unique index (migration 007).
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_anime_requests_name_lower" {
+			return fmt.Errorf("a request with this name already exists")
+		}
+		return err
+	}
+	return nil
+}
+
+// Delete removes a request. The request_server_destinations rows are removed
+// automatically via ON DELETE CASCADE (migration 006). Returns true if a row
+// was deleted, false if no request had the given ID.
+func (r *RequestRepo) Delete(ctx context.Context, id uuid.UUID) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM anime_requests WHERE id = $1`, id)
+	if err != nil {
+		return false, fmt.Errorf("deleting request: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // AddDestination adds a server destination to a request.

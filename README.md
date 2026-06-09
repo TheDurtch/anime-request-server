@@ -64,7 +64,7 @@ anime-request-server generate-invite \
 | Role    | Can do                                                                 |
 |---------|------------------------------------------------------------------------|
 | `admin` | Everything. Create invite codes, manage users, CLI access, full CRUD.  |
-| `mod`   | Change request status/category, assign server destination, add AniDB URL, manage server destinations. |
+| `mod`   | Rename, edit (status/category, assign server destination, add AniDB URL) and delete requests; manage server destinations. |
 | `user`  | Create requests (name + category). View all requests. Batch add (if granted). |
 
 ## User signup
@@ -184,7 +184,8 @@ All API endpoints are under `/api/v1/`.
 - `POST   /api/v1/requests` — create request (name + category)
 - `POST   /api/v1/requests/batch` — batch add (requires `can_batch_add` permission)
 - `GET    /api/v1/requests/{id}`
-- `PATCH  /api/v1/requests/{id}` — update (admin/mod: status, category, anidb_url)
+- `PATCH  /api/v1/requests/{id}` — update (admin/mod: name, status, category, anidb_url)
+- `DELETE /api/v1/requests/{id}` — delete request (admin/mod)
 - `POST   /api/v1/requests/{id}/destinations` — add server destination (admin/mod)
 - `DELETE /api/v1/requests/{id}/destinations/{dest_id}` — remove server destination (admin/mod)
 
