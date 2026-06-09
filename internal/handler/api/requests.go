@@ -487,3 +487,93 @@ func (h *RequestHandler) RemoveDestination(w http.ResponseWriter, r *http.Reques
 
 	JSON(w, http.StatusOK, map[string]string{"status": "removed"})
 }
+
+// maxNoteLen caps a note body to keep posts reasonable.
+const maxNoteLen = 2000
+
+// ListNotes handles GET /api/v1/requests/{id}/notes (any authenticated user).
+func (h *RequestHandler) ListNotes(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		Error(w, http.StatusBadRequest, "invalid request ID")
+		return
+	}
+
+	notes, err := h.requests.ListNotes(r.Context(), id)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	JSON(w, http.StatusOK, notes)
+}
+
+// AddNote handles POST /api/v1/requests/{id}/notes. Any authenticated user may
+// post unless they are blocked from posting notes.
+func (h *RequestHandler) AddNote(w http.ResponseWriter, r *http.Request) {
+	user := middleware.UserFromContext(r.Context())
+	if user.NotesBlocked {
+		Error(w, http.StatusForbidden, "you are blocked from posting notes")
+		return
+	}
+
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		Error(w, http.StatusBadRequest, "invalid request ID")
+		return
+	}
+
+	var req struct {
+		Body string `json:"body"`
+	}
+	if err := Decode(r, &req); err != nil {
+		Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	body := strings.TrimSpace(req.Body)
+	if body == "" {
+		Error(w, http.StatusBadRequest, "note body is required")
+		return
+	}
+	if len(body) > maxNoteLen {
+		Error(w, http.StatusBadRequest, "note is too long (max 2000 characters)")
+		return
+	}
+
+	// Confirm the request exists so a bad ID is a clean 404, not a 500.
+	existing, err := h.requests.GetByID(r.Context(), id)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if existing == nil {
+		Error(w, http.StatusNotFound, "request not found")
+		return
+	}
+
+	note, err := h.requests.AddNote(r.Context(), id, user.ID, body)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	JSON(w, http.StatusCreated, note)
+}
+
+// DeleteNote handles DELETE /api/v1/requests/{id}/notes/{note_id} (admin/mod).
+func (h *RequestHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
+	noteID, err := uuid.Parse(chi.URLParam(r, "note_id"))
+	if err != nil {
+		Error(w, http.StatusBadRequest, "invalid note ID")
+		return
+	}
+
+	deleted, err := h.requests.DeleteNote(r.Context(), noteID)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if !deleted {
+		Error(w, http.StatusNotFound, "note not found")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}

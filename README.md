@@ -65,8 +65,8 @@ anime-request-server generate-invite \
 | Role    | Can do                                                                 |
 |---------|------------------------------------------------------------------------|
 | `admin` | Everything. Create invite codes, manage users, CLI access, full CRUD.  |
-| `mod`   | Rename, set an alternate name, edit (status/category, assign server destination, add AniDB URL) and delete requests; manage server destinations. |
-| `user`  | Create requests (name + category). View all requests. Batch add (if granted). |
+| `mod`   | Rename, set an alternate name, edit (status/category, assign server destination, add AniDB URL) and delete requests; delete any note; manage server destinations. |
+| `user`  | Create requests (name + category). View all requests. Post notes on shows (unless blocked). Batch add (if granted). |
 
 ## User signup
 
@@ -109,6 +109,7 @@ All entries are created with category `batch_add` so mods know they haven't been
 | `role`          | `admin` / `mod` / `user`                   |
 | `can_batch_add` | default false — granted by admin           |
 | `disabled`      | default false                              |
+| `notes_blocked` | default false — admin can revoke note posting |
 | `created_at`    |                                            |
 | `updated_at`    |                                            |
 
@@ -150,6 +151,15 @@ All entries are created with category `batch_add` so mods know they haven't been
 | `added_at`              | timestamp of when destination was added |
 | PK                      | composite (`request_id`, `server_destination_id`) |
 
+### `request_notes`
+| Column       | Notes                                       |
+|--------------|---------------------------------------------|
+| `id`         | UUID PK                                     |
+| `request_id` | FK → anime_requests.id (cascades on delete) |
+| `author_id`  | FK → users.id                               |
+| `body`       | note text (≤ 2000 chars)                    |
+| `created_at` |                                             |
+
 ### `invite_codes`
 | Column       | Notes                                |
 |--------------|--------------------------------------|
@@ -190,6 +200,9 @@ All API endpoints are under `/api/v1/`.
 - `DELETE /api/v1/requests/{id}` — delete request (admin/mod)
 - `POST   /api/v1/requests/{id}/destinations` — add server destination (admin/mod)
 - `DELETE /api/v1/requests/{id}/destinations/{dest_id}` — remove server destination (admin/mod)
+- `GET    /api/v1/requests/{id}/notes` — list notes (any user)
+- `POST   /api/v1/requests/{id}/notes` — add a note (any user, unless blocked)
+- `DELETE /api/v1/requests/{id}/notes/{note_id}` — delete a note (admin/mod)
 
 ### Server destinations (admin/mod)
 - `GET    /api/v1/server-destinations`
@@ -201,7 +214,7 @@ All API endpoints are under `/api/v1/`.
 - `GET    /api/v1/admin/invite-codes` — list invite codes
 - `POST   /api/v1/admin/users` — create user
 - `GET    /api/v1/admin/users` — list users
-- `PATCH  /api/v1/admin/users/{id}` — change role, toggle batch_add, disable account
+- `PATCH  /api/v1/admin/users/{id}` — change role, toggle batch_add, disable account, block note posting
 
 ### Health
 - `GET /api/v1/health`

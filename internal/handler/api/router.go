@@ -63,6 +63,13 @@ func NewRouter(
 				Post("/{id}/destinations", requestHandler.AddDestination)
 			r.With(middleware.RequireRole(models.RoleAdmin, models.RoleMod)).
 				Delete("/{id}/destinations/{dest_id}", requestHandler.RemoveDestination)
+
+			// Notes: any authenticated user can read and post (unless blocked);
+			// only admin/mod can delete.
+			r.Get("/{id}/notes", requestHandler.ListNotes)
+			r.Post("/{id}/notes", requestHandler.AddNote)
+			r.With(middleware.RequireRole(models.RoleAdmin, models.RoleMod)).
+				Delete("/{id}/notes/{note_id}", requestHandler.DeleteNote)
 		})
 
 		// Admin routes
