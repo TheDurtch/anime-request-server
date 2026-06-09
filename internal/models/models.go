@@ -26,6 +26,7 @@ type User struct {
 	Role         Role      `json:"role"`
 	CanBatchAdd  bool      `json:"can_batch_add"`
 	Disabled     bool      `json:"disabled"`
+	NotesBlocked bool      `json:"notes_blocked"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -82,6 +83,16 @@ type AnimeRequest struct {
 	AnidbURL            *string                    `json:"anidb_url,omitempty"`
 	CreatedAt           time.Time                  `json:"created_at"`
 	UpdatedAt           time.Time                  `json:"updated_at"`
+}
+
+// Note is a single attributed, timestamped note on a request.
+type Note struct {
+	ID             uuid.UUID `json:"id"`
+	RequestID      uuid.UUID `json:"request_id"`
+	AuthorID       uuid.UUID `json:"author_id"`
+	AuthorUsername string    `json:"author_username"`
+	Body           string    `json:"body"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // ServerDestinationMapping represents a server destination assigned to a request.

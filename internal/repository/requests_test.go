@@ -266,6 +266,90 @@ func TestRequestRepo_CreateBatch_SkipsNameAndAltCollisions(t *testing.T) {
 	}
 }
 
+func TestRequestRepo_Notes(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t)
+	repo := repository.NewRequestRepo(testDB.Pool)
+	author := mustUser(t, "alice", models.RoleUser)
+	req, err := repo.Create(ctx, "Frieren", models.CategoryCurrentFuture, author.ID)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	n1, err := repo.AddNote(ctx, req.ID, author.ID, "first note")
+	if err != nil {
+		t.Fatalf("add note: %v", err)
+	}
+	if n1.AuthorUsername != "alice" || n1.Body != "first note" {
+		t.Fatalf("note = %+v, want author alice / body 'first note'", n1)
+	}
+	if _, err := repo.AddNote(ctx, req.ID, author.ID, "second note"); err != nil {
+		t.Fatalf("add note 2: %v", err)
+	}
+
+	notes, err := repo.ListNotes(ctx, req.ID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("notes = %d, want 2", len(notes))
+	}
+	if notes[0].Body != "first note" || notes[1].Body != "second note" {
+		t.Errorf("order = [%q, %q], want oldest-first", notes[0].Body, notes[1].Body)
+	}
+
+	// A note can't be deleted via a different request's ID.
+	other, err := repo.Create(ctx, "Other Show", models.CategoryCurrentFuture, author.ID)
+	if err != nil {
+		t.Fatalf("create other: %v", err)
+	}
+	if mism, _ := repo.DeleteNote(ctx, other.ID, n1.ID); mism {
+		t.Error("DeleteNote removed a note belonging to a different request")
+	}
+
+	deleted, err := repo.DeleteNote(ctx, req.ID, n1.ID)
+	if err != nil || !deleted {
+		t.Fatalf("delete note: deleted=%v err=%v", deleted, err)
+	}
+	if again, _ := repo.DeleteNote(ctx, req.ID, n1.ID); again {
+		t.Error("second delete reported a row removed")
+	}
+
+	// Deleting the request cascades its remaining notes.
+	if _, err := repo.Delete(ctx, req.ID); err != nil {
+		t.Fatalf("delete request: %v", err)
+	}
+	remaining, err := repo.ListNotes(ctx, req.ID)
+	if err != nil {
+		t.Fatalf("list after cascade: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("notes after request delete = %d, want 0 (cascade)", len(remaining))
+	}
+}
+
+func TestUserRepo_Update_NotesBlocked(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t)
+	users := repository.NewUserRepo(testDB.Pool)
+	u := mustUser(t, "bob", models.RoleUser)
+	if u.NotesBlocked {
+		t.Fatal("a new user should not be notes-blocked")
+	}
+
+	blocked := true
+	if err := users.Update(ctx, u.ID, nil, nil, nil, &blocked); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	got, err := users.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !got.NotesBlocked {
+		t.Error("notes_blocked was not persisted")
+	}
+}
+
 func resetDB(t *testing.T) {
 	t.Helper()
 	if testDB == nil {

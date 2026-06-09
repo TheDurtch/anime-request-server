@@ -50,10 +50,10 @@ func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.User, err
 	u := &models.User{}
 	err := r.pool.QueryRow(ctx, `
 		SELECT id, username, email, password_hash, totp_secret, totp_enabled,
-		       role, can_batch_add, disabled, created_at, updated_at
+		       role, can_batch_add, disabled, notes_blocked, created_at, updated_at
 		FROM users WHERE id = $1
 	`, id).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.TOTPSecret,
-		&u.TOTPEnabled, &u.Role, &u.CanBatchAdd, &u.Disabled, &u.CreatedAt, &u.UpdatedAt)
+		&u.TOTPEnabled, &u.Role, &u.CanBatchAdd, &u.Disabled, &u.NotesBlocked, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -68,10 +68,10 @@ func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*models.
 	u := &models.User{}
 	err := r.pool.QueryRow(ctx, `
 		SELECT id, username, email, password_hash, totp_secret, totp_enabled,
-		       role, can_batch_add, disabled, created_at, updated_at
+		       role, can_batch_add, disabled, notes_blocked, created_at, updated_at
 		FROM users WHERE username = $1
 	`, username).Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.TOTPSecret,
-		&u.TOTPEnabled, &u.Role, &u.CanBatchAdd, &u.Disabled, &u.CreatedAt, &u.UpdatedAt)
+		&u.TOTPEnabled, &u.Role, &u.CanBatchAdd, &u.Disabled, &u.NotesBlocked, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -84,7 +84,7 @@ func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*models.
 // List returns all users.
 func (r *UserRepo) List(ctx context.Context) ([]models.User, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, username, email, totp_enabled, role, can_batch_add, disabled, created_at, updated_at
+		SELECT id, username, email, totp_enabled, role, can_batch_add, disabled, notes_blocked, created_at, updated_at
 		FROM users ORDER BY created_at ASC
 	`)
 	if err != nil {
@@ -96,7 +96,7 @@ func (r *UserRepo) List(ctx context.Context) ([]models.User, error) {
 	for rows.Next() {
 		var u models.User
 		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.TOTPEnabled,
-			&u.Role, &u.CanBatchAdd, &u.Disabled, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			&u.Role, &u.CanBatchAdd, &u.Disabled, &u.NotesBlocked, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning user: %w", err)
 		}
 		users = append(users, u)
@@ -108,7 +108,7 @@ func (r *UserRepo) List(ctx context.Context) ([]models.User, error) {
 }
 
 // Update modifies user fields. Only non-nil fields are updated.
-func (r *UserRepo) Update(ctx context.Context, id uuid.UUID, role *models.Role, canBatchAdd *bool, disabled *bool) error {
+func (r *UserRepo) Update(ctx context.Context, id uuid.UUID, role *models.Role, canBatchAdd *bool, disabled *bool, notesBlocked *bool) error {
 	sets := []string{"updated_at = NOW()"}
 	args := []any{}
 	argIdx := 1
@@ -126,6 +126,11 @@ func (r *UserRepo) Update(ctx context.Context, id uuid.UUID, role *models.Role, 
 	if disabled != nil {
 		sets = append(sets, fmt.Sprintf("disabled = $%d", argIdx))
 		args = append(args, *disabled)
+		argIdx++
+	}
+	if notesBlocked != nil {
+		sets = append(sets, fmt.Sprintf("notes_blocked = $%d", argIdx))
+		args = append(args, *notesBlocked)
 		argIdx++
 	}
 
@@ -184,13 +189,13 @@ func (r *SessionRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*mo
 	u := &models.User{}
 	err := r.pool.QueryRow(ctx, `
 		SELECT s.id, s.user_id, s.token_hash, s.expires_at, s.created_at,
-		       u.id, u.username, u.email, u.totp_enabled, u.role, u.can_batch_add, u.disabled, u.created_at, u.updated_at
+		       u.id, u.username, u.email, u.totp_enabled, u.role, u.can_batch_add, u.disabled, u.notes_blocked, u.created_at, u.updated_at
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.token_hash = $1 AND s.expires_at > NOW()
 	`, tokenHash).Scan(
 		&s.ID, &s.UserID, &s.TokenHash, &s.ExpiresAt, &s.CreatedAt,
-		&u.ID, &u.Username, &u.Email, &u.TOTPEnabled, &u.Role, &u.CanBatchAdd, &u.Disabled, &u.CreatedAt, &u.UpdatedAt,
+		&u.ID, &u.Username, &u.Email, &u.TOTPEnabled, &u.Role, &u.CanBatchAdd, &u.Disabled, &u.NotesBlocked, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {

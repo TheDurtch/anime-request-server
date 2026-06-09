@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -148,6 +149,8 @@ func (h *Handler) Routes(sessionRepo *repository.SessionRepo) chi.Router {
 		r.Get("/requests/{id}", h.requestDetail)
 		r.Post("/requests/{id}/edit", h.requestEditSubmit)
 		r.Post("/requests/{id}/delete", h.requestDelete)
+		r.Post("/requests/{id}/notes", h.requestNoteAdd)
+		r.Post("/requests/{id}/notes/{note_id}/delete", h.requestNoteDelete)
 
 		// Admin routes
 		r.Group(func(r chi.Router) {
@@ -600,12 +603,19 @@ func (h *Handler) requestDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	notes, err := h.requests.ListNotes(r.Context(), id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
 	h.renderPage(w, "request_detail", map[string]any{
 		"User":               user,
 		"Request":            req,
 		"Statuses":           models.ValidStatuses(),
 		"Categories":         models.ValidCategories(),
 		"ServerDestinations": dests,
+		"Notes":              notes,
 	})
 }
 
@@ -768,6 +778,77 @@ func (h *Handler) requestDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+func (h *Handler) requestNoteAdd(w http.ResponseWriter, r *http.Request) {
+	user := middleware.UserFromContext(r.Context())
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	if user.NotesBlocked {
+		http.Error(w, "you are blocked from posting notes", http.StatusForbidden)
+		return
+	}
+
+	body := strings.TrimSpace(r.FormValue("body"))
+	if body == "" {
+		// Nothing to add; just return to the show.
+		http.Redirect(w, r, "/requests/"+id.String(), http.StatusSeeOther)
+		return
+	}
+	if utf8.RuneCountInString(body) > 2000 {
+		http.Error(w, "note is too long (max 2000 characters)", http.StatusBadRequest)
+		return
+	}
+
+	// Treat a missing request as 404 (consistent with requestDetail/edit/delete)
+	// rather than letting AddNote fail the FK and surface a 500.
+	existing, err := h.requests.GetByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if existing == nil {
+		http.Error(w, "request not found", http.StatusNotFound)
+		return
+	}
+
+	if _, err := h.requests.AddNote(r.Context(), id, user.ID, body); err != nil {
+		http.Error(w, "failed to add note", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/requests/"+id.String(), http.StatusSeeOther)
+}
+
+func (h *Handler) requestNoteDelete(w http.ResponseWriter, r *http.Request) {
+	user := middleware.UserFromContext(r.Context())
+	if user.Role != models.RoleAdmin && user.Role != models.RoleMod {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	noteID, err := uuid.Parse(chi.URLParam(r, "note_id"))
+	if err != nil {
+		http.Error(w, "invalid note ID", http.StatusBadRequest)
+		return
+	}
+
+	deleted, err := h.requests.DeleteNote(r.Context(), id, noteID)
+	if err != nil {
+		http.Error(w, "failed to delete note", http.StatusInternalServerError)
+		return
+	}
+	if !deleted {
+		http.Error(w, "note not found", http.StatusNotFound)
+		return
+	}
+	http.Redirect(w, r, "/requests/"+id.String(), http.StatusSeeOther)
+}
+
 // --- Admin pages ---
 
 func (h *Handler) usersPage(w http.ResponseWriter, r *http.Request) {
@@ -818,8 +899,9 @@ func (h *Handler) userEditSubmit(w http.ResponseWriter, r *http.Request) {
 	role := models.Role(roleStr)
 	canBatchAdd := r.FormValue("can_batch_add") == "true"
 	disabled := r.FormValue("disabled") == "true"
+	notesBlocked := r.FormValue("notes_blocked") == "true"
 
-	if err := h.users.Update(r.Context(), id, &role, &canBatchAdd, &disabled); err != nil {
+	if err := h.users.Update(r.Context(), id, &role, &canBatchAdd, &disabled, &notesBlocked); err != nil {
 		http.Error(w, "failed to update user", http.StatusInternalServerError)
 		return
 	}

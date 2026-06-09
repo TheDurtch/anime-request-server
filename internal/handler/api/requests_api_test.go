@@ -251,6 +251,98 @@ func TestAPI_CreateRequest_BadDestination(t *testing.T) {
 	}
 }
 
+func TestAPI_Notes(t *testing.T) {
+	resetDB(t)
+	srv, requests := newTestServer(t)
+	ctx := context.Background()
+
+	mod := mustUser(t, "mod", models.RoleMod)
+	modTok := mustSession(t, mod.ID)
+	user := mustUser(t, "joe", models.RoleUser)
+	userTok := mustSession(t, user.ID)
+
+	req, err := requests.Create(ctx, "Steins;Gate", models.CategoryCurrentFuture, mod.ID)
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	base := "/api/v1/requests/" + req.ID.String() + "/notes"
+
+	// A regular user can post a note, attributed to them.
+	rec := do(t, srv, http.MethodPost, base, userTok, `{"body":"a user note"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("user post: status %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	var note models.Note
+	if err := json.Unmarshal(rec.Body.Bytes(), &note); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if note.AuthorUsername != "joe" || note.Body != "a user note" {
+		t.Errorf("note = %+v", note)
+	}
+
+	// Empty body -> 400.
+	if rec := do(t, srv, http.MethodPost, base, userTok, `{"body":"   "}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty body: status %d, want 400", rec.Code)
+	}
+
+	// Anyone authenticated can list notes.
+	if rec := do(t, srv, http.MethodGet, base, userTok, ""); rec.Code != http.StatusOK {
+		t.Fatalf("list: status %d, want 200", rec.Code)
+	}
+
+	// Delete: forbidden for a regular user, allowed for a mod, 404 once gone.
+	delPath := base + "/" + note.ID.String()
+	if rec := do(t, srv, http.MethodDelete, delPath, userTok, ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("user delete: status %d, want 403", rec.Code)
+	}
+	// A note can't be deleted via a mismatched request URL.
+	other, err := requests.Create(ctx, "Other Show", models.CategoryCurrentFuture, mod.ID)
+	if err != nil {
+		t.Fatalf("seed other: %v", err)
+	}
+	mismatch := "/api/v1/requests/" + other.ID.String() + "/notes/" + note.ID.String()
+	if rec := do(t, srv, http.MethodDelete, mismatch, modTok, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("mismatched delete: status %d, want 404", rec.Code)
+	}
+	if rec := do(t, srv, http.MethodDelete, delPath, modTok, ""); rec.Code != http.StatusOK {
+		t.Fatalf("mod delete: status %d, want 200", rec.Code)
+	}
+	if rec := do(t, srv, http.MethodDelete, delPath, modTok, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("repeat delete: status %d, want 404", rec.Code)
+	}
+}
+
+func TestAPI_Notes_BlockedUser(t *testing.T) {
+	resetDB(t)
+	srv, requests := newTestServer(t)
+	ctx := context.Background()
+
+	admin := mustUser(t, "admin", models.RoleAdmin)
+	adminTok := mustSession(t, admin.ID)
+	blocked := mustUser(t, "spammer", models.RoleUser)
+	blockedTok := mustSession(t, blocked.ID)
+
+	req, err := requests.Create(ctx, "Bocchi", models.CategoryCurrentFuture, admin.ID)
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	base := "/api/v1/requests/" + req.ID.String() + "/notes"
+
+	// Admin blocks the user from posting notes.
+	if rec := do(t, srv, http.MethodPatch, "/api/v1/admin/users/"+blocked.ID.String(), adminTok, `{"notes_blocked":true}`); rec.Code != http.StatusOK {
+		t.Fatalf("block user: status %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// The block takes effect immediately (auth re-reads the user each request).
+	if rec := do(t, srv, http.MethodPost, base, blockedTok, `{"body":"spam"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("blocked post: status %d, want 403", rec.Code)
+	}
+	// A blocked user can still read notes.
+	if rec := do(t, srv, http.MethodGet, base, blockedTok, ""); rec.Code != http.StatusOK {
+		t.Fatalf("blocked read: status %d, want 200", rec.Code)
+	}
+}
+
 func do(t *testing.T, h http.Handler, method, path, token, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var r io.Reader

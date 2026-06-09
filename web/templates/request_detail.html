@@ -30,6 +30,39 @@
         </table>
     </div>
 
+    <div class="card">
+        <h2 style="margin-bottom:1rem; font-size:1.1rem;">Notes</h2>
+        {{if .Notes}}
+        {{range .Notes}}
+        <div style="border-bottom:1px solid var(--border, #333); padding:0.5rem 0;">
+            <div style="display:flex; justify-content:space-between; align-items:baseline; gap:0.5rem;">
+                <span style="font-size:0.85rem; color:var(--text-secondary);">{{.AuthorUsername}} · {{.CreatedAt.Format "2006-01-02 15:04"}}</span>
+                {{if $.User.IsModOrAdmin}}
+                <form method="POST" action="/requests/{{$.Request.ID}}/notes/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Delete this note?');">
+                    <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                </form>
+                {{end}}
+            </div>
+            <div style="white-space:pre-wrap; margin-top:0.25rem;">{{.Body}}</div>
+        </div>
+        {{end}}
+        {{else}}
+        <p style="color:var(--text-muted); font-size:0.9rem;">No notes yet.</p>
+        {{end}}
+
+        {{if .User.NotesBlocked}}
+        <p style="color:var(--text-muted); font-size:0.9rem; margin-top:1rem;">You are blocked from posting notes.</p>
+        {{else}}
+        <form method="POST" action="/requests/{{.Request.ID}}/notes" style="margin-top:1rem;">
+            <div class="form-group">
+                <label for="body">Add a note</label>
+                <textarea id="body" name="body" class="form-control" rows="3" maxlength="2000" placeholder="Add a note…"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">Post Note</button>
+        </form>
+        {{end}}
+    </div>
+
     {{if .User.IsModOrAdmin}}
     <div class="card">
         <h2 style="margin-bottom:1rem; font-size:1.1rem;">Update Request</h2>

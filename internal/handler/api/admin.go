@@ -102,9 +102,10 @@ func (h *AdminHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Role        *string `json:"role"`
-		CanBatchAdd *bool   `json:"can_batch_add"`
-		Disabled    *bool   `json:"disabled"`
+		Role         *string `json:"role"`
+		CanBatchAdd  *bool   `json:"can_batch_add"`
+		Disabled     *bool   `json:"disabled"`
+		NotesBlocked *bool   `json:"notes_blocked"`
 	}
 	if err := Decode(r, &req); err != nil {
 		Error(w, http.StatusBadRequest, "invalid request body")
@@ -121,7 +122,7 @@ func (h *AdminHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		role = &r
 	}
 
-	if err := h.users.Update(r.Context(), id, role, req.CanBatchAdd, req.Disabled); err != nil {
+	if err := h.users.Update(r.Context(), id, role, req.CanBatchAdd, req.Disabled, req.NotesBlocked); err != nil {
 		Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}

@@ -31,6 +31,12 @@
                     Disabled
                 </label>
             </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="notes_blocked" value="true" {{if .EditUser.NotesBlocked}}checked{{end}}>
+                    Block from posting notes
+                </label>
+            </div>
             <button type="submit" class="btn btn-primary">Save Changes</button>
         </form>
     </div>

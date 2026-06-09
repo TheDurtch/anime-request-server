@@ -479,6 +479,73 @@ func (r *RequestRepo) GetDestinationCount(ctx context.Context, requestID uuid.UU
 	return count, err
 }
 
+// AddNote inserts a note on a request and returns it with the author's username.
+func (r *RequestRepo) AddNote(ctx context.Context, requestID, authorID uuid.UUID, body string) (*models.Note, error) {
+	id := uuid.New()
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO request_notes (id, request_id, author_id, body)
+		VALUES ($1, $2, $3, $4)
+	`, id, requestID, authorID, body)
+	if err != nil {
+		return nil, fmt.Errorf("creating note: %w", err)
+	}
+	return r.GetNote(ctx, id)
+}
+
+// GetNote fetches a single note (with author username), or nil if absent.
+func (r *RequestRepo) GetNote(ctx context.Context, id uuid.UUID) (*models.Note, error) {
+	n := &models.Note{}
+	err := r.pool.QueryRow(ctx, `
+		SELECT n.id, n.request_id, n.author_id, u.username, n.body, n.created_at
+		FROM request_notes n
+		JOIN users u ON u.id = n.author_id
+		WHERE n.id = $1
+	`, id).Scan(&n.ID, &n.RequestID, &n.AuthorID, &n.AuthorUsername, &n.Body, &n.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("getting note: %w", err)
+	}
+	return n, nil
+}
+
+// ListNotes returns a request's notes oldest-first, each with its author username.
+func (r *RequestRepo) ListNotes(ctx context.Context, requestID uuid.UUID) ([]models.Note, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT n.id, n.request_id, n.author_id, u.username, n.body, n.created_at
+		FROM request_notes n
+		JOIN users u ON u.id = n.author_id
+		WHERE n.request_id = $1
+		ORDER BY n.created_at ASC
+	`, requestID)
+	if err != nil {
+		return nil, fmt.Errorf("listing notes: %w", err)
+	}
+	defer rows.Close()
+
+	notes := []models.Note{}
+	for rows.Next() {
+		var n models.Note
+		if err := rows.Scan(&n.ID, &n.RequestID, &n.AuthorID, &n.AuthorUsername, &n.Body, &n.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scanning note: %w", err)
+		}
+		notes = append(notes, n)
+	}
+	return notes, rows.Err()
+}
+
+// DeleteNote removes a note that belongs to the given request, returning whether
+// a row was deleted. Scoping by request_id means a note_id that doesn't belong to
+// requestID (or doesn't exist) deletes nothing — so a mismatched URL is a no-op.
+func (r *RequestRepo) DeleteNote(ctx context.Context, requestID, noteID uuid.UUID) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM request_notes WHERE id = $1 AND request_id = $2`, noteID, requestID)
+	if err != nil {
+		return false, fmt.Errorf("deleting note: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // NameInUse reports whether any candidate collides (case-insensitively) with the
 // name OR alt_name of an existing request, excluding the request with excludeID
 // (pass uuid.Nil to exclude none — e.g. on create). This is the app-level
