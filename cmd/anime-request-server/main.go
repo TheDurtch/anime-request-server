@@ -202,6 +202,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	r := chi.NewRouter()
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
+	if cfg.LogRequestIPs {
+		// Logs RemoteAddr, every forwarding header, and the derived client IP
+		// (per REAL_IP_HEADER) for each request. Opt-in via LOG_REQUEST_IPS.
+		r.Use(middleware.LogRequestIPs(cfg.RealIPHeader))
+		slog.Info("per-request IP logging enabled", "real_ip_header", cfg.RealIPHeader)
+	}
 	r.Use(middleware.Auth(sessionRepo))
 
 	// API routes

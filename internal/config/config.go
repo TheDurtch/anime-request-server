@@ -22,6 +22,11 @@ type Config struct {
 	// CookieSecure controls the Secure flag on session cookies. Defaults to
 	// true; set COOKIE_SECURE=false for local development over plain HTTP.
 	CookieSecure bool
+	// LogRequestIPs, when true, logs every IP-bearing header plus the derived
+	// client IP for each request. Off by default because it records client IPs
+	// (PII) on every request; set LOG_REQUEST_IPS=true to diagnose REAL_IP_HEADER
+	// behavior behind a reverse proxy.
+	LogRequestIPs bool
 }
 
 // Load reads configuration from environment variables.
@@ -68,6 +73,15 @@ func Load() (*Config, error) {
 		}
 	}
 
+	logRequestIPs := false
+	if v := os.Getenv("LOG_REQUEST_IPS"); v != "" {
+		var err error
+		logRequestIPs, err = strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid LOG_REQUEST_IPS: %w", err)
+		}
+	}
+
 	return &Config{
 		DatabaseURL:   dbURL,
 		ServerHost:    host,
@@ -76,6 +90,7 @@ func Load() (*Config, error) {
 		WebUIEnabled:  webUI,
 		RealIPHeader:  os.Getenv("REAL_IP_HEADER"),
 		CookieSecure:  cookieSecure,
+		LogRequestIPs: logRequestIPs,
 	}, nil
 }
 
