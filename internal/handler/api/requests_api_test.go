@@ -131,6 +131,60 @@ func TestAPI_UpdateRequest_Name(t *testing.T) {
 	}
 }
 
+func TestAPI_CreateRequest_ModFields(t *testing.T) {
+	resetDB(t)
+	srv, _ := newTestServer(t)
+	ctx := context.Background()
+
+	mod := mustUser(t, "mod", models.RoleMod)
+	modTok := mustSession(t, mod.ID)
+	dest, err := testsupport.SeedDestination(ctx, testDB.Pool, "Plex", mod.ID)
+	if err != nil {
+		t.Fatalf("seed dest: %v", err)
+	}
+
+	// A mod can set status, anidb_url, and destinations at creation.
+	body := fmt.Sprintf(`{"name":"Frieren","category":"current_future","status":"need_to_get","anidb_url":"https://anidb.net/anime/1","server_destination_ids":["%s"]}`, dest.ID)
+	rec := do(t, srv, http.MethodPost, "/api/v1/requests/", modTok, body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("mod create: status %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	var got models.AnimeRequest
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Status != models.StatusNeedToGet {
+		t.Errorf("status = %q, want need_to_get", got.Status)
+	}
+	if got.AnidbURL == nil || *got.AnidbURL != "https://anidb.net/anime/1" {
+		t.Errorf("anidb_url = %v, want the submitted URL", got.AnidbURL)
+	}
+	if len(got.ServerDestinations) != 1 {
+		t.Errorf("destinations = %d, want 1", len(got.ServerDestinations))
+	}
+
+	// A regular user's mod-only fields are ignored: defaults apply.
+	plain := mustUser(t, "joe", models.RoleUser)
+	userTok := mustSession(t, plain.ID)
+	body = fmt.Sprintf(`{"name":"Bocchi","category":"current_future","status":"done","server_destination_ids":["%s"]}`, dest.ID)
+	rec = do(t, srv, http.MethodPost, "/api/v1/requests/", userTok, body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("user create: status %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	// Fresh struct: server_destinations is omitempty, so reusing the previous
+	// value would leave a stale slice when the field is absent.
+	var userGot models.AnimeRequest
+	if err := json.Unmarshal(rec.Body.Bytes(), &userGot); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if userGot.Status != models.StatusNew {
+		t.Errorf("user status = %q, want new (mod fields must be ignored)", userGot.Status)
+	}
+	if len(userGot.ServerDestinations) != 0 {
+		t.Errorf("user destinations = %d, want 0 (mod fields must be ignored)", len(userGot.ServerDestinations))
+	}
+}
+
 func do(t *testing.T, h http.Handler, method, path, token, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var r io.Reader

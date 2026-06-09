@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/TheDurtch/anime-request-server/internal/models"
 	"github.com/TheDurtch/anime-request-server/internal/repository"
 	"github.com/TheDurtch/anime-request-server/internal/testsupport"
@@ -124,6 +126,47 @@ func TestRequestRepo_Delete(t *testing.T) {
 	}
 	if deleted {
 		t.Fatal("second delete reported a row removed for a missing request")
+	}
+}
+
+func TestRequestRepo_CreateWithDetails(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t)
+	repo := repository.NewRequestRepo(testDB.Pool)
+	u := mustUser(t, "mod", models.RoleMod)
+
+	d1, err := testsupport.SeedDestination(ctx, testDB.Pool, "Plex", u.ID)
+	if err != nil {
+		t.Fatalf("seed dest 1: %v", err)
+	}
+	d2, err := testsupport.SeedDestination(ctx, testDB.Pool, "Jellyfin", u.ID)
+	if err != nil {
+		t.Fatalf("seed dest 2: %v", err)
+	}
+
+	status := models.StatusNeedToGet
+	url := "https://anidb.net/anime/1"
+	got, err := repo.CreateWithDetails(ctx, "Frieren", models.CategoryCurrentFuture, u.ID,
+		&status, &url, []uuid.UUID{d1.ID, d2.ID})
+	if err != nil {
+		t.Fatalf("create with details: %v", err)
+	}
+
+	if got.Status != models.StatusNeedToGet {
+		t.Errorf("status = %q, want %q", got.Status, models.StatusNeedToGet)
+	}
+	if got.AnidbURL == nil || *got.AnidbURL != url {
+		t.Errorf("anidb_url = %v, want %q", got.AnidbURL, url)
+	}
+	if len(got.ServerDestinations) != 2 {
+		t.Errorf("destinations = %d, want 2", len(got.ServerDestinations))
+	}
+
+	// A duplicate name still conflicts, and the transaction rolls back so no
+	// orphaned destination links are left behind.
+	_, err = repo.CreateWithDetails(ctx, "frieren", models.CategoryCurrentFuture, u.ID, nil, nil, []uuid.UUID{d1.ID})
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("duplicate create: got %v, want an 'already exists' error", err)
 	}
 }
 
