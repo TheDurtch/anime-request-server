@@ -128,6 +128,53 @@ func postForm(t *testing.T, h http.Handler, path, token string, form url.Values)
 	return rec
 }
 
+func TestWeb_RequestDetail_Notes(t *testing.T) {
+	resetDB(t)
+	srv := newWebServer(t)
+	ctx := context.Background()
+	requests := repository.NewRequestRepo(testDB.Pool)
+
+	mod := mustUser(t, "mod", models.RoleMod)
+	req, err := requests.Create(ctx, "Frieren", models.CategoryCurrentFuture, mod.ID)
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	note, err := requests.AddNote(ctx, req.ID, mod.ID, "an existing note")
+	if err != nil {
+		t.Fatalf("seed note: %v", err)
+	}
+	path := "/requests/" + req.ID.String()
+
+	// A normal user sees the note and the add-note form.
+	user := mustUser(t, "joe", models.RoleUser)
+	body := get(t, srv, path, mustSession(t, user.ID))
+	for _, want := range []string{"an existing note", `name="body"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("detail page missing %q for a normal user", want)
+		}
+	}
+
+	// A mod additionally sees a delete control for the note.
+	modBody := get(t, srv, path, mustSession(t, mod.ID))
+	if !strings.Contains(modBody, "/notes/"+note.ID.String()+"/delete") {
+		t.Error("mod detail page missing the note delete control")
+	}
+
+	// A blocked user sees no add form, just the blocked message.
+	blocked := mustUser(t, "spammer", models.RoleUser)
+	bt := true
+	if err := repository.NewUserRepo(testDB.Pool).Update(ctx, blocked.ID, nil, nil, nil, &bt); err != nil {
+		t.Fatalf("block: %v", err)
+	}
+	blockedBody := get(t, srv, path, mustSession(t, blocked.ID))
+	if strings.Contains(blockedBody, `name="body"`) {
+		t.Error("a blocked user should not see the add-note form")
+	}
+	if !strings.Contains(blockedBody, "blocked from posting") {
+		t.Error("a blocked user should see the blocked message")
+	}
+}
+
 func get(t *testing.T, h http.Handler, path, token string) string {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
