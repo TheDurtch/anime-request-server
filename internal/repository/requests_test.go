@@ -43,7 +43,7 @@ func TestRequestRepo_Update_Rename(t *testing.T) {
 	}
 
 	newName := "New Name"
-	if err := repo.Update(ctx, req.ID, &newName, nil, nil, nil); err != nil {
+	if err := repo.Update(ctx, req.ID, &newName, nil, nil, nil, nil); err != nil {
 		t.Fatalf("rename: %v", err)
 	}
 
@@ -72,14 +72,14 @@ func TestRequestRepo_Update_RenameConflict(t *testing.T) {
 
 	// Renaming "Naruto" -> "bleach" must collide on the LOWER(name) unique index.
 	clash := "bleach"
-	err = repo.Update(ctx, a.ID, &clash, nil, nil, nil)
+	err = repo.Update(ctx, a.ID, &clash, nil, nil, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("rename conflict: got %v, want an 'already exists' error", err)
 	}
 
 	// Renaming a row to its own current name is a no-op, not a conflict.
 	same := "Naruto"
-	if err := repo.Update(ctx, a.ID, &same, nil, nil, nil); err != nil {
+	if err := repo.Update(ctx, a.ID, &same, nil, nil, nil, nil); err != nil {
 		t.Fatalf("rename-to-self: %v", err)
 	}
 }
@@ -147,7 +147,7 @@ func TestRequestRepo_CreateWithDetails(t *testing.T) {
 	status := models.StatusNeedToGet
 	url := "https://anidb.net/anime/1"
 	got, err := repo.CreateWithDetails(ctx, "Frieren", models.CategoryCurrentFuture, u.ID,
-		&status, &url, []uuid.UUID{d1.ID, d2.ID})
+		nil, &status, &url, []uuid.UUID{d1.ID, d2.ID})
 	if err != nil {
 		t.Fatalf("create with details: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestRequestRepo_CreateWithDetails(t *testing.T) {
 
 	// A duplicate name still conflicts, and the transaction rolls back so no
 	// orphaned destination links are left behind.
-	_, err = repo.CreateWithDetails(ctx, "frieren", models.CategoryCurrentFuture, u.ID, nil, nil, []uuid.UUID{d1.ID})
+	_, err = repo.CreateWithDetails(ctx, "frieren", models.CategoryCurrentFuture, u.ID, nil, nil, nil, []uuid.UUID{d1.ID})
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("duplicate create: got %v, want an 'already exists' error", err)
 	}
@@ -177,18 +177,66 @@ func TestRequestRepo_CreateWithDetails_BadDestination(t *testing.T) {
 	u := mustUser(t, "mod", models.RoleMod)
 
 	ghost := uuid.New() // a well-formed UUID that isn't a real destination
-	_, err := repo.CreateWithDetails(ctx, "Ghosty", models.CategoryCurrentFuture, u.ID, nil, nil, []uuid.UUID{ghost})
+	_, err := repo.CreateWithDetails(ctx, "Ghosty", models.CategoryCurrentFuture, u.ID, nil, nil, nil, []uuid.UUID{ghost})
 	if err == nil || !strings.Contains(err.Error(), "destination does not exist") {
 		t.Fatalf("got %v, want a 'destination does not exist' error", err)
 	}
 
 	// The transaction rolled back, so the request itself was not created.
-	dup, err := repo.CheckDuplicate(ctx, "Ghosty")
+	dup, err := repo.NameInUse(ctx, uuid.Nil, "Ghosty")
 	if err != nil {
 		t.Fatalf("check duplicate: %v", err)
 	}
 	if dup {
 		t.Fatal("request was created despite the destination failure (no rollback)")
+	}
+}
+
+func TestRequestRepo_AltName(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t)
+	repo := repository.NewRequestRepo(testDB.Pool)
+	u := mustUser(t, "mod", models.RoleMod)
+
+	alt := "The Apothecary Diaries"
+	got, err := repo.CreateWithDetails(ctx, "Kusuriya no Hitorigoto", models.CategoryCurrentFuture, u.ID, &alt, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("create with alt: %v", err)
+	}
+	if got.AltName == nil || *got.AltName != alt {
+		t.Fatalf("alt_name = %v, want %q", got.AltName, alt)
+	}
+
+	// Bidirectional duplicate detection (the app-level guarantee):
+	// a candidate name matching an existing alt, and vice versa.
+	for _, cand := range []string{"the apothecary diaries", "kusuriya no hitorigoto"} {
+		dup, err := repo.NameInUse(ctx, uuid.Nil, cand)
+		if err != nil {
+			t.Fatalf("NameInUse(%q): %v", cand, err)
+		}
+		if !dup {
+			t.Errorf("NameInUse(%q) = false, want true (collides with existing name/alt)", cand)
+		}
+	}
+
+	// NameInUse excludes the row itself, so a no-op resubmit isn't a false dup.
+	if dup, err := repo.NameInUse(ctx, got.ID, "Kusuriya no Hitorigoto", "The Apothecary Diaries"); err != nil {
+		t.Fatalf("NameInUse self: %v", err)
+	} else if dup {
+		t.Error("NameInUse flagged the row against its own name/alt")
+	}
+
+	// DB backstop: a second request reusing the same alt (case-insensitively)
+	// is rejected by the LOWER(alt_name) unique index.
+	dupAlt := "the apothecary diaries"
+	if _, err := repo.CreateWithDetails(ctx, "Some Other Show", models.CategoryCurrentFuture, u.ID, &dupAlt, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("duplicate alt: got %v, want 'already exists'", err)
+	}
+
+	// DB backstop: alt equal to the row's own name violates chk_alt_name_differs.
+	same := "Mushoku Tensei"
+	if _, err := repo.CreateWithDetails(ctx, same, models.CategoryCurrentFuture, u.ID, &same, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "must differ") {
+		t.Fatalf("alt == name: got %v, want 'must differ'", err)
 	}
 }
 
