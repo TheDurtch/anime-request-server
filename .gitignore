@@ -2,7 +2,9 @@
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
 #
 # Binaries for programs and plugins
-anime-request-server
+# Anchored to the repo root so it ignores the built ./anime-request-server
+# binary without also matching the cmd/anime-request-server/ source directory.
+/anime-request-server
 *.exe
 *.exe~
 *.dll
@@ -31,6 +33,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
-anime-request-server
-.env
+
+# Personal notes
 .notes
