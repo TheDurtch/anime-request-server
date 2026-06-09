@@ -639,8 +639,13 @@ func (h *Handler) requestDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.requests.Delete(r.Context(), id); err != nil {
+	deleted, err := h.requests.Delete(r.Context(), id)
+	if err != nil {
 		http.Error(w, "failed to delete request", http.StatusInternalServerError)
+		return
+	}
+	if !deleted {
+		http.Error(w, "request not found", http.StatusNotFound)
 		return
 	}
 
