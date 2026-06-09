@@ -46,6 +46,7 @@ export COOKIE_SECURE=false
 | `WEBUI_ENABLED` | No | `true` | Set to `false` for API-only mode |
 | `REAL_IP_HEADER` | No | — | Proxy header trusted for the client IP in login rate limiting. Empty = trust none (use TCP peer). E.g. `CF-Connecting-IP`, `X-Forwarded-For` |
 | `COOKIE_SECURE` | No | `true` | `Secure` flag on session cookies; set `false` only for local HTTP dev |
+| `LOG_REQUEST_IPS` | No | `false` | Log `RemoteAddr`, every forwarding header, and the derived client IP per request. Useful to verify `REAL_IP_HEADER` behind a proxy; logs client IPs (PII), so leave off in normal operation |
 
 ## CLI commands
 
