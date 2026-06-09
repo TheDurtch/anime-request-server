@@ -65,7 +65,7 @@ anime-request-server generate-invite \
 | Role    | Can do                                                                 |
 |---------|------------------------------------------------------------------------|
 | `admin` | Everything. Create invite codes, manage users, CLI access, full CRUD.  |
-| `mod`   | Rename, edit (status/category, assign server destination, add AniDB URL) and delete requests; manage server destinations. |
+| `mod`   | Rename, set an alternate name, edit (status/category, assign server destination, add AniDB URL) and delete requests; manage server destinations. |
 | `user`  | Create requests (name + category). View all requests. Batch add (if granted). |
 
 ## User signup
@@ -134,6 +134,7 @@ All entries are created with category `batch_add` so mods know they haven't been
 |-----------------------|----------------------------------------------------|
 | `id`                  | UUID PK                                            |
 | `name`                | required — show title; unique (case-insensitive)   |
+| `alt_name`            | nullable — alternate title (e.g. English); set by mod/admin; unique (case-insensitive) and counts as a duplicate |
 | `category`            | `current_future` / `finished_airing` / `batch_add` |
 | `status`              | `new` / `done` / `need_to_get` / `acquiring` / `processing` / `syncing` (default `new`) |
 | `requested_by`        | FK → users.id                                      |
@@ -182,10 +183,10 @@ All API endpoints are under `/api/v1/`.
 
 ### Requests (authenticated)
 - `GET    /api/v1/requests` — list (filters: `category`, `status`, `requested_by`, `page`, `per_page`)
-- `POST   /api/v1/requests` — create request (name + category; admin/mod may also set `status`, `anidb_url`, `server_destination_ids`)
+- `POST   /api/v1/requests` — create request (name + category; admin/mod may also set `alt_name`, `status`, `anidb_url`, `server_destination_ids`)
 - `POST   /api/v1/requests/batch` — batch add (requires `can_batch_add` permission)
 - `GET    /api/v1/requests/{id}`
-- `PATCH  /api/v1/requests/{id}` — update (admin/mod: name, status, category, anidb_url)
+- `PATCH  /api/v1/requests/{id}` — update (admin/mod: name, alt_name, status, category, anidb_url)
 - `DELETE /api/v1/requests/{id}` — delete request (admin/mod)
 - `POST   /api/v1/requests/{id}/destinations` — add server destination (admin/mod)
 - `DELETE /api/v1/requests/{id}/destinations/{dest_id}` — remove server destination (admin/mod)

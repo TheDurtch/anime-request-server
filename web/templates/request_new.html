@@ -22,6 +22,10 @@
             </div>
             {{if .User.IsModOrAdmin}}
             <div class="form-group">
+                <label for="alt_name">Alternate Name (optional)</label>
+                <input type="text" id="alt_name" name="alt_name" class="form-control" value="{{.AltName}}">
+            </div>
+            <div class="form-group">
                 <label for="status">Status</label>
                 <select id="status" name="status" class="form-control">
                     {{range .Statuses}}

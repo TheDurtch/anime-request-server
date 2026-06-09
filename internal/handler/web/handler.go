@@ -403,20 +403,22 @@ func (h *Handler) requestsList(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) requestNewPage(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
-	h.renderNewRequest(w, r, user, "", "", "current_future", "", "", nil)
+	h.renderNewRequest(w, r, user, "")
 }
 
-// renderNewRequest renders the new-request form. For mods/admins it also
-// supplies the status options and server-destination list and echoes back the
-// submitted status, AniDB URL, and checked destinations so error re-renders
-// preserve input. errMsg is shown as an alert when non-empty.
-func (h *Handler) renderNewRequest(w http.ResponseWriter, r *http.Request, user *models.User, errMsg, name, category, status, anidbURL string, selectedDestIDs []string) {
+// renderNewRequest renders the new-request form, echoing the submitted values
+// straight from the (already-parsed) request so error re-renders preserve input.
+// For mods/admins it also supplies the status options and server-destination
+// list. errMsg is shown as an alert when non-empty. On a fresh GET the form is
+// empty and the category defaults to current_future.
+func (h *Handler) renderNewRequest(w http.ResponseWriter, r *http.Request, user *models.User, errMsg string) {
+	category := r.FormValue("category")
 	if category == "" {
 		category = "current_future"
 	}
 	data := map[string]any{
 		"User":     user,
-		"Name":     name,
+		"Name":     strings.TrimSpace(r.FormValue("name")),
 		"Category": category,
 	}
 	if errMsg != "" {
@@ -428,14 +430,15 @@ func (h *Handler) renderNewRequest(w http.ResponseWriter, r *http.Request, user 
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		selected := make(map[string]bool, len(selectedDestIDs))
-		for _, id := range selectedDestIDs {
+		selected := make(map[string]bool)
+		for _, id := range r.Form["server_destination_ids"] {
 			selected[id] = true
 		}
 		data["ServerDestinations"] = dests
 		data["Statuses"] = models.ValidStatuses()
-		data["Status"] = status
-		data["AnidbURL"] = anidbURL
+		data["AltName"] = strings.TrimSpace(r.FormValue("alt_name"))
+		data["Status"] = r.FormValue("status")
+		data["AnidbURL"] = strings.TrimSpace(r.FormValue("anidb_url"))
 		data["SelectedDestIDs"] = selected
 	}
 	h.renderPage(w, "request_new", data)
@@ -448,30 +451,39 @@ func (h *Handler) requestNewSubmit(w http.ResponseWriter, r *http.Request) {
 
 	// Mod/admin-only fields. These are only read when the user is a mod or
 	// admin, so a regular user can't set them by hand-crafting the form.
-	var statusStr, anidbStr string
+	var altStr, statusStr, anidbStr string
 	var selectedDestIDs []string
 	if user.IsModOrAdmin() {
+		altStr = strings.TrimSpace(r.FormValue("alt_name"))
 		statusStr = r.FormValue("status")
 		anidbStr = strings.TrimSpace(r.FormValue("anidb_url"))
 		selectedDestIDs = r.Form["server_destination_ids"]
 	}
 
 	if name == "" {
-		h.renderNewRequest(w, r, user, "Name is required", name, category, statusStr, anidbStr, selectedDestIDs)
+		h.renderNewRequest(w, r, user, "Name is required")
 		return
 	}
 	if category != string(models.CategoryCurrentFuture) && category != string(models.CategoryFinishedAiring) {
-		h.renderNewRequest(w, r, user, "Invalid category", name, category, statusStr, anidbStr, selectedDestIDs)
+		h.renderNewRequest(w, r, user, "Invalid category")
 		return
 	}
 
+	var altName *string
 	var status *models.Status
 	var anidbPtr *string
 	var destIDs []uuid.UUID
 	if user.IsModOrAdmin() {
+		if altStr != "" {
+			if strings.EqualFold(altStr, name) {
+				h.renderNewRequest(w, r, user, "Alternate name must differ from the name")
+				return
+			}
+			altName = &altStr
+		}
 		if statusStr != "" {
 			if !models.IsValidStatus(statusStr) {
-				h.renderNewRequest(w, r, user, "Invalid status", name, category, statusStr, anidbStr, selectedDestIDs)
+				h.renderNewRequest(w, r, user, "Invalid status")
 				return
 			}
 			s := models.Status(statusStr)
@@ -479,7 +491,7 @@ func (h *Handler) requestNewSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 		if anidbStr != "" {
 			if !isValidHTTPURL(anidbStr) {
-				h.renderNewRequest(w, r, user, "AniDB URL must be a valid http(s) URL", name, category, statusStr, anidbStr, selectedDestIDs)
+				h.renderNewRequest(w, r, user, "AniDB URL must be a valid http(s) URL")
 				return
 			}
 			anidbPtr = &anidbStr
@@ -487,33 +499,39 @@ func (h *Handler) requestNewSubmit(w http.ResponseWriter, r *http.Request) {
 		for _, idStr := range selectedDestIDs {
 			destID, err := uuid.Parse(idStr)
 			if err != nil {
-				h.renderNewRequest(w, r, user, "Invalid server destination selected", name, category, statusStr, anidbStr, selectedDestIDs)
+				h.renderNewRequest(w, r, user, "Invalid server destination selected")
 				return
 			}
 			destIDs = append(destIDs, destID)
 		}
 	}
 
-	dup, err := h.requests.CheckDuplicate(r.Context(), name)
+	candidates := []string{name}
+	if altName != nil {
+		candidates = append(candidates, *altName)
+	}
+	dup, err := h.requests.NameInUse(r.Context(), uuid.Nil, candidates...)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	if dup {
-		h.renderNewRequest(w, r, user, "A request with this name already exists", name, category, statusStr, anidbStr, selectedDestIDs)
+		h.renderNewRequest(w, r, user, "A request with this name already exists")
 		return
 	}
 
-	_, err = h.requests.CreateWithDetails(r.Context(), name, models.Category(category), user.ID, status, anidbPtr, destIDs)
+	_, err = h.requests.CreateWithDetails(r.Context(), name, models.Category(category), user.ID, altName, status, anidbPtr, destIDs)
 	if err != nil {
 		msg := "Failed to create request"
 		switch {
 		case strings.Contains(err.Error(), "already exists"):
 			msg = "A request with this name already exists"
+		case strings.Contains(err.Error(), "must differ"):
+			msg = "Alternate name must differ from the name"
 		case strings.Contains(err.Error(), "destination does not exist"):
 			msg = "One or more selected server destinations no longer exist"
 		}
-		h.renderNewRequest(w, r, user, msg, name, category, statusStr, anidbStr, selectedDestIDs)
+		h.renderNewRequest(w, r, user, msg)
 		return
 	}
 
@@ -612,6 +630,7 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := strings.TrimSpace(r.FormValue("name"))
+	altStr := strings.TrimSpace(r.FormValue("alt_name"))
 	statusStr := r.FormValue("status")
 	categoryStr := r.FormValue("category")
 	selectedDestIDs := r.Form["server_destination_ids"] // Multiple checkboxes
@@ -619,6 +638,26 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 
 	if name == "" {
 		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+	if altStr != "" && strings.EqualFold(altStr, name) {
+		http.Error(w, "alternate name must differ from the name", http.StatusBadRequest)
+		return
+	}
+	// The edit form always submits alt_name; an empty value clears it (NULL).
+	altName := &altStr
+
+	// Reject a name/alt that collides with another request (including the
+	// cross-column cases the unique indexes can't catch), excluding this row.
+	candidates := []string{name}
+	if altStr != "" {
+		candidates = append(candidates, altStr)
+	}
+	if dup, err := h.requests.NameInUse(r.Context(), id, candidates...); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	} else if dup {
+		http.Error(w, "a request with this name already exists", http.StatusConflict)
 		return
 	}
 
@@ -647,10 +686,14 @@ func (h *Handler) requestEditSubmit(w http.ResponseWriter, r *http.Request) {
 	// entry, so a wrong URL is corrected by entering the right one and never
 	// needs to be cleared. (This also replaces the old "none" sentinel.)
 
-	// Update basic fields (name, status, category, anidb_url)
-	if err := h.requests.Update(r.Context(), id, &name, status, category, anidbPtr); err != nil {
+	// Update basic fields (name, alt_name, status, category, anidb_url)
+	if err := h.requests.Update(r.Context(), id, &name, altName, status, category, anidbPtr); err != nil {
 		if strings.Contains(err.Error(), "already exists") {
 			http.Error(w, "a request with this name already exists", http.StatusConflict)
+			return
+		}
+		if strings.Contains(err.Error(), "must differ") {
+			http.Error(w, "alternate name must differ from the name", http.StatusBadRequest)
 			return
 		}
 		http.Error(w, "failed to update request", http.StatusInternalServerError)

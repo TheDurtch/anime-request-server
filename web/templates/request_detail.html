@@ -12,6 +12,7 @@
         </div>
 
         <table style="max-width:400px;">
+            {{if .Request.AltName}}<tr><td style="color:var(--text-secondary);">Also known as</td><td>{{deref .Request.AltName}}</td></tr>{{end}}
             <tr><td style="color:var(--text-secondary);">Requested by</td><td>{{.Request.RequestedByUsername}}</td></tr>
             <tr>
                 <td style="color:var(--text-secondary);">Server</td>
@@ -36,6 +37,10 @@
             <div class="form-group">
                 <label for="name">Name</label>
                 <input type="text" id="name" name="name" class="form-control" value="{{.Request.Name}}" required>
+            </div>
+            <div class="form-group">
+                <label for="alt_name">Alternate Name (optional)</label>
+                <input type="text" id="alt_name" name="alt_name" class="form-control" value="{{if .Request.AltName}}{{deref .Request.AltName}}{{end}}">
             </div>
             <div class="form-group">
                 <label for="status">Status</label>
