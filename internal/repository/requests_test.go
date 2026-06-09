@@ -240,6 +240,32 @@ func TestRequestRepo_AltName(t *testing.T) {
 	}
 }
 
+func TestRequestRepo_CreateBatch_SkipsNameAndAltCollisions(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t)
+	repo := repository.NewRequestRepo(testDB.Pool)
+	u := mustUser(t, "mod", models.RoleMod)
+
+	alt := "The Apothecary Diaries"
+	if _, err := repo.CreateWithDetails(ctx, "Kusuriya no Hitorigoto", models.CategoryCurrentFuture, u.ID, &alt, nil, nil, nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Batch: a fresh name, one colliding with the existing alt, and one
+	// colliding with the existing primary name (both case-insensitively).
+	// Only the fresh name should be inserted.
+	count, err := repo.CreateBatch(ctx, []string{"Frieren", "the apothecary diaries", "KUSURIYA NO HITORIGOTO"}, u.ID)
+	if err != nil {
+		t.Fatalf("batch: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("inserted %d, want 1 (name and alt collisions skipped)", count)
+	}
+	if dup, _ := repo.NameInUse(ctx, uuid.Nil, "Frieren"); !dup {
+		t.Error("the fresh batch name was not inserted")
+	}
+}
+
 func resetDB(t *testing.T) {
 	t.Helper()
 	if testDB == nil {

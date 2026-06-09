@@ -139,10 +139,52 @@ func (r *RequestRepo) CreateBatch(ctx context.Context, names []string, requested
 	}
 	defer tx.Rollback(ctx)
 
+	// Pre-filter names that collide (case-insensitively) with an existing
+	// request's name OR alt_name. The ON CONFLICT below still backstops
+	// name<->name races and intra-batch duplicates; this adds the alt_name
+	// cross-column case the LOWER(name) index can't catch.
+	lowered := make([]string, len(names))
+	for i, n := range names {
+		lowered[i] = strings.ToLower(n)
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT LOWER(name) FROM anime_requests WHERE LOWER(name) = ANY($1)
+		UNION
+		SELECT LOWER(alt_name) FROM anime_requests WHERE alt_name IS NOT NULL AND LOWER(alt_name) = ANY($1)
+	`, lowered)
+	if err != nil {
+		return 0, fmt.Errorf("checking batch duplicates: %w", err)
+	}
+	taken := make(map[string]bool)
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scanning batch duplicates: %w", err)
+		}
+		taken[s] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("scanning batch duplicates: %w", err)
+	}
+
+	toInsert := make([]string, 0, len(names))
+	for _, n := range names {
+		if !taken[strings.ToLower(n)] {
+			toInsert = append(toInsert, n)
+		}
+	}
+	if len(toInsert) == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			return 0, fmt.Errorf("commit batch insert: %w", err)
+		}
+		return 0, nil
+	}
+
 	batch := &pgx.Batch{}
-	for _, name := range names {
-		// Skip names that collide (case-insensitively) with an existing row or
-		// an earlier item in this batch, rather than failing the whole batch.
+	for _, name := range toInsert {
+		// ON CONFLICT skips name<->name races and intra-batch duplicates.
 		batch.Queue(`INSERT INTO anime_requests (id, name, category, requested_by) VALUES ($1, $2, 'batch_add', $3) ON CONFLICT (LOWER(name)) DO NOTHING`, uuid.New(), name, requestedBy)
 	}
 
@@ -150,7 +192,7 @@ func (r *RequestRepo) CreateBatch(ctx context.Context, names []string, requested
 
 	count := 0
 	var execErr error
-	for range names {
+	for range toInsert {
 		tag, err := br.Exec()
 		if err != nil {
 			execErr = fmt.Errorf("batch insert: %w", err)
