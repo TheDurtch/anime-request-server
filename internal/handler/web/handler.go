@@ -487,7 +487,8 @@ func (h *Handler) requestNewSubmit(w http.ResponseWriter, r *http.Request) {
 		for _, idStr := range selectedDestIDs {
 			destID, err := uuid.Parse(idStr)
 			if err != nil {
-				continue // skip invalid UUIDs
+				h.renderNewRequest(w, r, user, "Invalid server destination selected", name, category, statusStr, anidbStr, selectedDestIDs)
+				return
 			}
 			destIDs = append(destIDs, destID)
 		}
@@ -506,8 +507,11 @@ func (h *Handler) requestNewSubmit(w http.ResponseWriter, r *http.Request) {
 	_, err = h.requests.CreateWithDetails(r.Context(), name, models.Category(category), user.ID, status, anidbPtr, destIDs)
 	if err != nil {
 		msg := "Failed to create request"
-		if strings.Contains(err.Error(), "already exists") {
+		switch {
+		case strings.Contains(err.Error(), "already exists"):
 			msg = "A request with this name already exists"
+		case strings.Contains(err.Error(), "destination does not exist"):
+			msg = "One or more selected server destinations no longer exist"
 		}
 		h.renderNewRequest(w, r, user, msg, name, category, statusStr, anidbStr, selectedDestIDs)
 		return

@@ -90,6 +90,14 @@ func (r *RequestRepo) CreateWithDetails(ctx context.Context, name string, catego
 			VALUES ($1, $2)
 			ON CONFLICT (request_id, server_destination_id) DO NOTHING
 		`, id, destID); err != nil {
+			// A foreign-key violation (23503) here means the server destination
+			// doesn't exist — the request_id was just inserted in this same
+			// transaction, so it's the destination reference that's bad. Surface
+			// it distinctly so handlers can return a 400 rather than a 500.
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+				return nil, fmt.Errorf("server destination does not exist")
+			}
 			return nil, fmt.Errorf("linking destination: %w", err)
 		}
 	}

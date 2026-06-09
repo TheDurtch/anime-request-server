@@ -170,6 +170,28 @@ func TestRequestRepo_CreateWithDetails(t *testing.T) {
 	}
 }
 
+func TestRequestRepo_CreateWithDetails_BadDestination(t *testing.T) {
+	ctx := context.Background()
+	resetDB(t)
+	repo := repository.NewRequestRepo(testDB.Pool)
+	u := mustUser(t, "mod", models.RoleMod)
+
+	ghost := uuid.New() // a well-formed UUID that isn't a real destination
+	_, err := repo.CreateWithDetails(ctx, "Ghosty", models.CategoryCurrentFuture, u.ID, nil, nil, []uuid.UUID{ghost})
+	if err == nil || !strings.Contains(err.Error(), "destination does not exist") {
+		t.Fatalf("got %v, want a 'destination does not exist' error", err)
+	}
+
+	// The transaction rolled back, so the request itself was not created.
+	dup, err := repo.CheckDuplicate(ctx, "Ghosty")
+	if err != nil {
+		t.Fatalf("check duplicate: %v", err)
+	}
+	if dup {
+		t.Fatal("request was created despite the destination failure (no rollback)")
+	}
+}
+
 func resetDB(t *testing.T) {
 	t.Helper()
 	if testDB == nil {

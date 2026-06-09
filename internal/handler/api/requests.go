@@ -137,6 +137,10 @@ func (h *RequestHandler) Create(w http.ResponseWriter, r *http.Request) {
 			Error(w, http.StatusConflict, "a request with this name already exists")
 			return
 		}
+		if strings.Contains(err.Error(), "destination does not exist") {
+			Error(w, http.StatusBadRequest, "invalid server_destination_ids")
+			return
+		}
 		Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}

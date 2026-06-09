@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -84,6 +85,47 @@ func TestWeb_NewRequestPage_ModFields(t *testing.T) {
 			t.Errorf("user new-request page unexpectedly contains %q", notWant)
 		}
 	}
+}
+
+func TestWeb_NewRequestSubmit_BadDestination(t *testing.T) {
+	resetDB(t)
+	srv := newWebServer(t)
+
+	mod := mustUser(t, "mod", models.RoleMod)
+	tok := mustSession(t, mod.ID)
+
+	form := url.Values{
+		"name":                   {"Ghosty"},
+		"category":               {"current_future"},
+		"server_destination_ids": {"not-a-uuid"},
+	}
+	rec := postForm(t, srv, "/requests/new", tok, form)
+
+	// The form is re-rendered with an error (200), not redirected or 500'd.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200 (form re-render); body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Invalid server destination") {
+		t.Errorf("expected a validation error in the re-rendered form")
+	}
+
+	// And no request was created.
+	requests := repository.NewRequestRepo(testDB.Pool)
+	if dup, err := requests.CheckDuplicate(context.Background(), "Ghosty"); err != nil {
+		t.Fatalf("check duplicate: %v", err)
+	} else if dup {
+		t.Error("a request was created despite the invalid destination")
+	}
+}
+
+func postForm(t *testing.T, h http.Handler, path, token string, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
 }
 
 func get(t *testing.T, h http.Handler, path, token string) string {

@@ -185,6 +185,28 @@ func TestAPI_CreateRequest_ModFields(t *testing.T) {
 	}
 }
 
+func TestAPI_CreateRequest_BadDestination(t *testing.T) {
+	resetDB(t)
+	srv, _ := newTestServer(t)
+
+	mod := mustUser(t, "mod", models.RoleMod)
+	tok := mustSession(t, mod.ID)
+
+	// A malformed UUID is rejected up front.
+	rec := do(t, srv, http.MethodPost, "/api/v1/requests/", tok,
+		`{"name":"A","category":"current_future","server_destination_ids":["not-a-uuid"]}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("malformed dest: status %d, want 400", rec.Code)
+	}
+
+	// A well-formed but non-existent destination is a 400, not a 500.
+	body := fmt.Sprintf(`{"name":"B","category":"current_future","server_destination_ids":["%s"]}`, uuid.New())
+	rec = do(t, srv, http.MethodPost, "/api/v1/requests/", tok, body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("non-existent dest: status %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func do(t *testing.T, h http.Handler, method, path, token, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var r io.Reader
