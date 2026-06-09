@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -795,8 +796,20 @@ func (h *Handler) requestNoteAdd(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/requests/"+id.String(), http.StatusSeeOther)
 		return
 	}
-	if len(body) > 2000 {
+	if utf8.RuneCountInString(body) > 2000 {
 		http.Error(w, "note is too long (max 2000 characters)", http.StatusBadRequest)
+		return
+	}
+
+	// Treat a missing request as 404 (consistent with requestDetail/edit/delete)
+	// rather than letting AddNote fail the FK and surface a 500.
+	existing, err := h.requests.GetByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if existing == nil {
+		http.Error(w, "request not found", http.StatusNotFound)
 		return
 	}
 
@@ -824,8 +837,13 @@ func (h *Handler) requestNoteDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.requests.DeleteNote(r.Context(), noteID); err != nil {
+	deleted, err := h.requests.DeleteNote(r.Context(), id, noteID)
+	if err != nil {
 		http.Error(w, "failed to delete note", http.StatusInternalServerError)
+		return
+	}
+	if !deleted {
+		http.Error(w, "note not found", http.StatusNotFound)
 		return
 	}
 	http.Redirect(w, r, "/requests/"+id.String(), http.StatusSeeOther)

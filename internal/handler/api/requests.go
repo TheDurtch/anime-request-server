@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -534,7 +535,7 @@ func (h *RequestHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 		Error(w, http.StatusBadRequest, "note body is required")
 		return
 	}
-	if len(body) > maxNoteLen {
+	if utf8.RuneCountInString(body) > maxNoteLen {
 		Error(w, http.StatusBadRequest, "note is too long (max 2000 characters)")
 		return
 	}
@@ -560,13 +561,19 @@ func (h *RequestHandler) AddNote(w http.ResponseWriter, r *http.Request) {
 
 // DeleteNote handles DELETE /api/v1/requests/{id}/notes/{note_id} (admin/mod).
 func (h *RequestHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		Error(w, http.StatusBadRequest, "invalid request ID")
+		return
+	}
 	noteID, err := uuid.Parse(chi.URLParam(r, "note_id"))
 	if err != nil {
 		Error(w, http.StatusBadRequest, "invalid note ID")
 		return
 	}
 
-	deleted, err := h.requests.DeleteNote(r.Context(), noteID)
+	// Scoped by request ID: a note that isn't on this request is a 404.
+	deleted, err := h.requests.DeleteNote(r.Context(), id, noteID)
 	if err != nil {
 		Error(w, http.StatusInternalServerError, "internal error")
 		return

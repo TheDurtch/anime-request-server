@@ -298,11 +298,20 @@ func TestRequestRepo_Notes(t *testing.T) {
 		t.Errorf("order = [%q, %q], want oldest-first", notes[0].Body, notes[1].Body)
 	}
 
-	deleted, err := repo.DeleteNote(ctx, n1.ID)
+	// A note can't be deleted via a different request's ID.
+	other, err := repo.Create(ctx, "Other Show", models.CategoryCurrentFuture, author.ID)
+	if err != nil {
+		t.Fatalf("create other: %v", err)
+	}
+	if mism, _ := repo.DeleteNote(ctx, other.ID, n1.ID); mism {
+		t.Error("DeleteNote removed a note belonging to a different request")
+	}
+
+	deleted, err := repo.DeleteNote(ctx, req.ID, n1.ID)
 	if err != nil || !deleted {
 		t.Fatalf("delete note: deleted=%v err=%v", deleted, err)
 	}
-	if again, _ := repo.DeleteNote(ctx, n1.ID); again {
+	if again, _ := repo.DeleteNote(ctx, req.ID, n1.ID); again {
 		t.Error("second delete reported a row removed")
 	}
 

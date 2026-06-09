@@ -535,9 +535,11 @@ func (r *RequestRepo) ListNotes(ctx context.Context, requestID uuid.UUID) ([]mod
 	return notes, rows.Err()
 }
 
-// DeleteNote removes a note, returning whether a row was deleted.
-func (r *RequestRepo) DeleteNote(ctx context.Context, id uuid.UUID) (bool, error) {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM request_notes WHERE id = $1`, id)
+// DeleteNote removes a note that belongs to the given request, returning whether
+// a row was deleted. Scoping by request_id means a note_id that doesn't belong to
+// requestID (or doesn't exist) deletes nothing — so a mismatched URL is a no-op.
+func (r *RequestRepo) DeleteNote(ctx context.Context, requestID, noteID uuid.UUID) (bool, error) {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM request_notes WHERE id = $1 AND request_id = $2`, noteID, requestID)
 	if err != nil {
 		return false, fmt.Errorf("deleting note: %w", err)
 	}

@@ -295,6 +295,15 @@ func TestAPI_Notes(t *testing.T) {
 	if rec := do(t, srv, http.MethodDelete, delPath, userTok, ""); rec.Code != http.StatusForbidden {
 		t.Fatalf("user delete: status %d, want 403", rec.Code)
 	}
+	// A note can't be deleted via a mismatched request URL.
+	other, err := requests.Create(ctx, "Other Show", models.CategoryCurrentFuture, mod.ID)
+	if err != nil {
+		t.Fatalf("seed other: %v", err)
+	}
+	mismatch := "/api/v1/requests/" + other.ID.String() + "/notes/" + note.ID.String()
+	if rec := do(t, srv, http.MethodDelete, mismatch, modTok, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("mismatched delete: status %d, want 404", rec.Code)
+	}
 	if rec := do(t, srv, http.MethodDelete, delPath, modTok, ""); rec.Code != http.StatusOK {
 		t.Fatalf("mod delete: status %d, want 200", rec.Code)
 	}
