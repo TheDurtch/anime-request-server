@@ -181,7 +181,7 @@ All API endpoints are under `/api/v1/`.
 
 ### Requests (authenticated)
 - `GET    /api/v1/requests` — list (filters: `category`, `status`, `requested_by`, `page`, `per_page`)
-- `POST   /api/v1/requests` — create request (name + category)
+- `POST   /api/v1/requests` — create request (name + category; admin/mod may also set `status`, `anidb_url`, `server_destination_ids`)
 - `POST   /api/v1/requests/batch` — batch add (requires `can_batch_add` permission)
 - `GET    /api/v1/requests/{id}`
 - `PATCH  /api/v1/requests/{id}` — update (admin/mod: name, status, category, anidb_url)

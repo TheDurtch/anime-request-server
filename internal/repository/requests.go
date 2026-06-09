@@ -33,14 +33,47 @@ type RequestFilter struct {
 	PerPage     int
 }
 
-// Create inserts a new anime request.
+// Create inserts a new anime request with default status and no destinations.
 func (r *RequestRepo) Create(ctx context.Context, name string, category models.Category, requestedBy uuid.UUID) (*models.AnimeRequest, error) {
+	return r.CreateWithDetails(ctx, name, category, requestedBy, nil, nil, nil)
+}
+
+// CreateWithDetails inserts a new anime request and, in a single transaction,
+// applies the optional mod/admin fields: a non-nil status overrides the DB
+// default ('new'), a non-nil anidbURL is stored, and each ID in destIDs is
+// linked as a server destination. Callers must validate status/anidbURL before
+// passing them; values are bound, not interpolated.
+func (r *RequestRepo) CreateWithDetails(ctx context.Context, name string, category models.Category, requestedBy uuid.UUID, status *models.Status, anidbURL *string, destIDs []uuid.UUID) (*models.AnimeRequest, error) {
 	id := uuid.New()
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO anime_requests (id, name, category, requested_by)
-		VALUES ($1, $2, $3, $4)
-	`, id, name, string(category), requestedBy)
+
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Build the insert with only the columns we're setting; status/anidb_url
+	// fall back to their schema defaults when omitted.
+	cols := []string{"id", "name", "category", "requested_by"}
+	placeholders := []string{"$1", "$2", "$3", "$4"}
+	args := []any{id, name, string(category), requestedBy}
+	next := 5
+	if status != nil {
+		cols = append(cols, "status")
+		placeholders = append(placeholders, fmt.Sprintf("$%d", next))
+		args = append(args, string(*status))
+		next++
+	}
+	if anidbURL != nil {
+		cols = append(cols, "anidb_url")
+		placeholders = append(placeholders, fmt.Sprintf("$%d", next))
+		args = append(args, *anidbURL)
+		next++
+	}
+
+	query := fmt.Sprintf("INSERT INTO anime_requests (%s) VALUES (%s)",
+		strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+	if _, err := tx.Exec(ctx, query, args...); err != nil {
 		// Unique index on LOWER(name) (migration 007) — surfaces a race that
 		// slipped past the app-level duplicate check. Match the specific
 		// unique-violation (23505) on that index rather than the error string.
@@ -50,6 +83,29 @@ func (r *RequestRepo) Create(ctx context.Context, name string, category models.C
 		}
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
+
+	for _, destID := range destIDs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO request_server_destinations (request_id, server_destination_id)
+			VALUES ($1, $2)
+			ON CONFLICT (request_id, server_destination_id) DO NOTHING
+		`, id, destID); err != nil {
+			// A foreign-key violation (23503) here means the server destination
+			// doesn't exist — the request_id was just inserted in this same
+			// transaction, so it's the destination reference that's bad. Surface
+			// it distinctly so handlers can return a 400 rather than a 500.
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+				return nil, fmt.Errorf("server destination does not exist")
+			}
+			return nil, fmt.Errorf("linking destination: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit create: %w", err)
+	}
+
 	return r.GetByID(ctx, id)
 }
 

@@ -403,11 +403,42 @@ func (h *Handler) requestsList(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) requestNewPage(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
-	h.renderPage(w, "request_new", map[string]any{
+	h.renderNewRequest(w, r, user, "", "", "current_future", "", "", nil)
+}
+
+// renderNewRequest renders the new-request form. For mods/admins it also
+// supplies the status options and server-destination list and echoes back the
+// submitted status, AniDB URL, and checked destinations so error re-renders
+// preserve input. errMsg is shown as an alert when non-empty.
+func (h *Handler) renderNewRequest(w http.ResponseWriter, r *http.Request, user *models.User, errMsg, name, category, status, anidbURL string, selectedDestIDs []string) {
+	if category == "" {
+		category = "current_future"
+	}
+	data := map[string]any{
 		"User":     user,
-		"Name":     "",
-		"Category": "current_future",
-	})
+		"Name":     name,
+		"Category": category,
+	}
+	if errMsg != "" {
+		data["Error"] = errMsg
+	}
+	if user.IsModOrAdmin() {
+		dests, err := h.serverDests.List(r.Context())
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		selected := make(map[string]bool, len(selectedDestIDs))
+		for _, id := range selectedDestIDs {
+			selected[id] = true
+		}
+		data["ServerDestinations"] = dests
+		data["Statuses"] = models.ValidStatuses()
+		data["Status"] = status
+		data["AnidbURL"] = anidbURL
+		data["SelectedDestIDs"] = selected
+	}
+	h.renderPage(w, "request_new", data)
 }
 
 func (h *Handler) requestNewSubmit(w http.ResponseWriter, r *http.Request) {
@@ -415,13 +446,52 @@ func (h *Handler) requestNewSubmit(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	category := r.FormValue("category")
 
+	// Mod/admin-only fields. These are only read when the user is a mod or
+	// admin, so a regular user can't set them by hand-crafting the form.
+	var statusStr, anidbStr string
+	var selectedDestIDs []string
+	if user.IsModOrAdmin() {
+		statusStr = r.FormValue("status")
+		anidbStr = strings.TrimSpace(r.FormValue("anidb_url"))
+		selectedDestIDs = r.Form["server_destination_ids"]
+	}
+
 	if name == "" {
-		h.renderPage(w, "request_new", map[string]any{"User": user, "Error": "Name is required", "Name": name, "Category": category})
+		h.renderNewRequest(w, r, user, "Name is required", name, category, statusStr, anidbStr, selectedDestIDs)
 		return
 	}
 	if category != string(models.CategoryCurrentFuture) && category != string(models.CategoryFinishedAiring) {
-		h.renderPage(w, "request_new", map[string]any{"User": user, "Error": "Invalid category", "Name": name, "Category": category})
+		h.renderNewRequest(w, r, user, "Invalid category", name, category, statusStr, anidbStr, selectedDestIDs)
 		return
+	}
+
+	var status *models.Status
+	var anidbPtr *string
+	var destIDs []uuid.UUID
+	if user.IsModOrAdmin() {
+		if statusStr != "" {
+			if !models.IsValidStatus(statusStr) {
+				h.renderNewRequest(w, r, user, "Invalid status", name, category, statusStr, anidbStr, selectedDestIDs)
+				return
+			}
+			s := models.Status(statusStr)
+			status = &s
+		}
+		if anidbStr != "" {
+			if !isValidHTTPURL(anidbStr) {
+				h.renderNewRequest(w, r, user, "AniDB URL must be a valid http(s) URL", name, category, statusStr, anidbStr, selectedDestIDs)
+				return
+			}
+			anidbPtr = &anidbStr
+		}
+		for _, idStr := range selectedDestIDs {
+			destID, err := uuid.Parse(idStr)
+			if err != nil {
+				h.renderNewRequest(w, r, user, "Invalid server destination selected", name, category, statusStr, anidbStr, selectedDestIDs)
+				return
+			}
+			destIDs = append(destIDs, destID)
+		}
 	}
 
 	dup, err := h.requests.CheckDuplicate(r.Context(), name)
@@ -430,17 +500,20 @@ func (h *Handler) requestNewSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if dup {
-		h.renderPage(w, "request_new", map[string]any{"User": user, "Error": "A request with this name already exists", "Name": name, "Category": category})
+		h.renderNewRequest(w, r, user, "A request with this name already exists", name, category, statusStr, anidbStr, selectedDestIDs)
 		return
 	}
 
-	_, err = h.requests.Create(r.Context(), name, models.Category(category), user.ID)
+	_, err = h.requests.CreateWithDetails(r.Context(), name, models.Category(category), user.ID, status, anidbPtr, destIDs)
 	if err != nil {
 		msg := "Failed to create request"
-		if strings.Contains(err.Error(), "already exists") {
+		switch {
+		case strings.Contains(err.Error(), "already exists"):
 			msg = "A request with this name already exists"
+		case strings.Contains(err.Error(), "destination does not exist"):
+			msg = "One or more selected server destinations no longer exist"
 		}
-		h.renderPage(w, "request_new", map[string]any{"User": user, "Error": msg, "Name": name, "Category": category})
+		h.renderNewRequest(w, r, user, msg, name, category, statusStr, anidbStr, selectedDestIDs)
 		return
 	}
 

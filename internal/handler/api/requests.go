@@ -68,6 +68,11 @@ func (h *RequestHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name     string `json:"name"`
 		Category string `json:"category"`
+		// Mod/admin-only optional fields, applied only when the caller is a
+		// mod or admin; ignored for regular users.
+		Status               *string  `json:"status"`
+		AnidbURL             *string  `json:"anidb_url"`
+		ServerDestinationIDs []string `json:"server_destination_ids"`
 	}
 	if err := Decode(r, &req); err != nil {
 		Error(w, http.StatusBadRequest, "invalid request body")
@@ -86,6 +91,35 @@ func (h *RequestHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var status *models.Status
+	var anidbURL *string
+	var destIDs []uuid.UUID
+	if user.IsModOrAdmin() {
+		if req.Status != nil {
+			if !models.IsValidStatus(*req.Status) {
+				Error(w, http.StatusBadRequest, "invalid status")
+				return
+			}
+			s := models.Status(*req.Status)
+			status = &s
+		}
+		if req.AnidbURL != nil && *req.AnidbURL != "" {
+			if !isValidHTTPURL(*req.AnidbURL) {
+				Error(w, http.StatusBadRequest, "anidb_url must be a valid http(s) URL")
+				return
+			}
+			anidbURL = req.AnidbURL
+		}
+		for _, idStr := range req.ServerDestinationIDs {
+			id, err := uuid.Parse(idStr)
+			if err != nil {
+				Error(w, http.StatusBadRequest, "invalid server_destination_ids")
+				return
+			}
+			destIDs = append(destIDs, id)
+		}
+	}
+
 	// Check for duplicates
 	dup, err := h.requests.CheckDuplicate(r.Context(), req.Name)
 	if err != nil {
@@ -97,10 +131,14 @@ func (h *RequestHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	request, err := h.requests.Create(r.Context(), req.Name, models.Category(req.Category), user.ID)
+	request, err := h.requests.CreateWithDetails(r.Context(), req.Name, models.Category(req.Category), user.ID, status, anidbURL, destIDs)
 	if err != nil {
 		if strings.Contains(err.Error(), "already exists") {
 			Error(w, http.StatusConflict, "a request with this name already exists")
+			return
+		}
+		if strings.Contains(err.Error(), "destination does not exist") {
+			Error(w, http.StatusBadRequest, "invalid server_destination_ids")
 			return
 		}
 		Error(w, http.StatusInternalServerError, "internal error")
