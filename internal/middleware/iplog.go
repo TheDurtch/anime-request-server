@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/TheDurtch/anime-request-server/internal/ratelimit"
+	"github.com/Kagejitsu/anime-request-server/internal/ratelimit"
 )
 
 // ipHeaders are the request headers commonly used by reverse proxies and CDNs

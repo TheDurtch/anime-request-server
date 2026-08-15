@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TheDurtch/anime-request-server/internal/auth"
-	"github.com/TheDurtch/anime-request-server/internal/middleware"
-	"github.com/TheDurtch/anime-request-server/internal/models"
-	"github.com/TheDurtch/anime-request-server/internal/ratelimit"
-	"github.com/TheDurtch/anime-request-server/internal/repository"
+	"github.com/Kagejitsu/anime-request-server/internal/auth"
+	"github.com/Kagejitsu/anime-request-server/internal/middleware"
+	"github.com/Kagejitsu/anime-request-server/internal/models"
+	"github.com/Kagejitsu/anime-request-server/internal/ratelimit"
+	"github.com/Kagejitsu/anime-request-server/internal/repository"
 )
 
 const sessionDuration = 24 * time.Hour

@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/TheDurtch/anime-request-server/internal/models"
+	"github.com/Kagejitsu/anime-request-server/internal/models"
 )
 
 // RequestRepo handles anime request database operations.

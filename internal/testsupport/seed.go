@@ -7,9 +7,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/TheDurtch/anime-request-server/internal/auth"
-	"github.com/TheDurtch/anime-request-server/internal/models"
-	"github.com/TheDurtch/anime-request-server/internal/repository"
+	"github.com/Kagejitsu/anime-request-server/internal/auth"
+	"github.com/Kagejitsu/anime-request-server/internal/models"
+	"github.com/Kagejitsu/anime-request-server/internal/repository"
 )
 
 // SeedUser inserts a user with the given role and a usable bcrypt password hash.

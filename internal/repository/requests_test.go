@@ -9,9 +9,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/TheDurtch/anime-request-server/internal/models"
-	"github.com/TheDurtch/anime-request-server/internal/repository"
-	"github.com/TheDurtch/anime-request-server/internal/testsupport"
+	"github.com/Kagejitsu/anime-request-server/internal/models"
+	"github.com/Kagejitsu/anime-request-server/internal/repository"
+	"github.com/Kagejitsu/anime-request-server/internal/testsupport"
 )
 
 var testDB *testsupport.DB

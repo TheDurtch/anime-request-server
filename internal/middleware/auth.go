@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/TheDurtch/anime-request-server/internal/auth"
-	"github.com/TheDurtch/anime-request-server/internal/models"
-	"github.com/TheDurtch/anime-request-server/internal/repository"
+	"github.com/Kagejitsu/anime-request-server/internal/auth"
+	"github.com/Kagejitsu/anime-request-server/internal/models"
+	"github.com/Kagejitsu/anime-request-server/internal/repository"
 )
 
 type contextKey string

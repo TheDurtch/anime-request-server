@@ -14,7 +14,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/TheDurtch/anime-request-server/internal/database"
+	"github.com/Kagejitsu/anime-request-server/internal/database"
 )
 
 // DB is a disposable PostgreSQL instance and its connection pool.

@@ -1,4 +1,4 @@
-module github.com/TheDurtch/anime-request-server
+module github.com/Kagejitsu/anime-request-server
 
 go 1.25.0
 

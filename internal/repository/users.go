@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/TheDurtch/anime-request-server/internal/models"
+	"github.com/Kagejitsu/anime-request-server/internal/models"
 )
 
 // UserRepo handles user database operations.

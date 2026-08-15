@@ -7,10 +7,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/httprate"
 
-	"github.com/TheDurtch/anime-request-server/internal/middleware"
-	"github.com/TheDurtch/anime-request-server/internal/models"
-	"github.com/TheDurtch/anime-request-server/internal/ratelimit"
-	"github.com/TheDurtch/anime-request-server/internal/repository"
+	"github.com/Kagejitsu/anime-request-server/internal/middleware"
+	"github.com/Kagejitsu/anime-request-server/internal/models"
+	"github.com/Kagejitsu/anime-request-server/internal/ratelimit"
+	"github.com/Kagejitsu/anime-request-server/internal/repository"
 )
 
 // NewRouter creates the API router with all endpoints.

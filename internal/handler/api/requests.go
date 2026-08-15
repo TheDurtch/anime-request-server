@@ -10,9 +10,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/TheDurtch/anime-request-server/internal/middleware"
-	"github.com/TheDurtch/anime-request-server/internal/models"
-	"github.com/TheDurtch/anime-request-server/internal/repository"
+	"github.com/Kagejitsu/anime-request-server/internal/middleware"
+	"github.com/Kagejitsu/anime-request-server/internal/models"
+	"github.com/Kagejitsu/anime-request-server/internal/repository"
 )
 
 // RequestHandler handles anime request endpoints.
